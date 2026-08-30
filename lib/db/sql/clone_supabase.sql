@@ -7,9 +7,9 @@
 -- After restoring, recreate the matching auth.users accounts (see below).
 -- =====================================================================
 
-CREATE EXTENSION IF NOT EXISTS uuid-ossp;
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS "vector";
 
 SET statement_timeout = 0;
 --
@@ -37,7 +37,7 @@ SET row_security = off;
 -- Name: public; Type: SCHEMA; Schema: -; Owner: -
 --
 
-CREATE SCHEMA public;
+-- CREATE SCHEMA public; (already exists on Supabase)
 
 
 --

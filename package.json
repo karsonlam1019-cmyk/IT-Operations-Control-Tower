@@ -6,6 +6,7 @@
   "scripts": {
     "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
+    "test": "vitest run",
     "test:jira-sync": "node --test src/services/jiraSync.test.js",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
@@ -17,7 +18,12 @@
     "ws": "^8.21.3"
   },
   "devDependencies": {
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.3.0",
     "prettier": "^3.9.6",
-    "typescript": "~5.9.3"
+    "typescript": "~5.9.3",
+    "jsdom": "^26.1.0",
+    "vitest": "^3.2.4"
   }
 }

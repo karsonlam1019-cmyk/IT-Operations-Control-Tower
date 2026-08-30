@@ -1,4 +1,4 @@
-import { type ReactNode, useMemo, useState, useEffect, useRef, useCallback } from 'react';
+import React, { type ReactNode, useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle,
@@ -429,7 +429,7 @@ function JiraQueueSection() {
   );
 }
 
-function StaffPage() {
+export function StaffPage() {
   const query = useListStaff({ query: { queryKey: getListStaffQueryKey(), refetchInterval: 15000 } });
   const update = useUpdateStaffStatus();
   const syncJira = useSyncStaffJira();

@@ -60,7 +60,7 @@ export const syncStaffJiraResponseCountMin = 0;
 
 
 export const SyncStaffJiraResponse = zod.object({
-  "count": zod.int().min(syncStaffJiraResponseCountMin)
+  "count": zod.number().min(syncStaffJiraResponseCountMin)
 })
 
 

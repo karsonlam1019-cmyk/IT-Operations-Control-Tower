@@ -21,7 +21,6 @@ import {
   GetThreeWayMatchParams,
   GetThreeWayMatchResponse,
   GetTreasuryAnalyticsResponse,
-  JiraSyncResult,
   ListAuditLogsResponse,
   ListDlqEntriesQueryParams,
   ListDlqEntriesResponse,
@@ -46,6 +45,7 @@ import {
   SubmitProcurementReviewBody,
   SubmitProcurementReviewParams,
   SubmitProcurementReviewResponse,
+  SyncStaffJiraResponse,
   ToggleReleaseGateParams,
   ToggleReleaseGateResponse,
   UpdateStaffStatusBody,
@@ -150,7 +150,7 @@ router.get("/staff", async (_req, res) => {
 router.post("/staff/sync-jira", async (req, res): Promise<void> => {
   try {
     const result = await syncJiraShifts();
-    res.json(JiraSyncResult.parse(result));
+    res.json(SyncStaffJiraResponse.parse(result));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const isConfigurationError = message.startsWith(

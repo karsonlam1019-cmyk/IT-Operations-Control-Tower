@@ -29,7 +29,10 @@ function getRequiredEnvironment() {
   };
 }
 
-export async function syncJiraShifts() {
+export async function syncJiraShifts({
+  fetchImpl = fetch,
+  createSupabaseClient = createClient,
+} = {}) {
   const {
     supabaseUrl,
     supabaseServiceRoleKey,
@@ -38,14 +41,18 @@ export async function syncJiraShifts() {
     jiraApiToken,
   } = getRequiredEnvironment();
 
-  const supabase = createClient(supabaseUrl, supabaseServiceRoleKey, {
-    realtime: { transport: WebSocket },
-  });
+  const normalizedSupabaseUrl = new URL(supabaseUrl).origin;
+  const supabase = createSupabaseClient(
+    normalizedSupabaseUrl,
+    supabaseServiceRoleKey,
+    {
+      realtime: { transport: WebSocket },
+    },
+  );
   const normalizedJiraHost = jiraHost
     .trim()
     .replace(/^https?:\/\//i, "")
     .replace(/\/+$/, "");
-  const jiraUrl = `https://${normalizedJiraHost}/rest/api/3/search?jql=updated>=-10m&fields=assignee,status,updated`;
   const authorization = `Basic ${Buffer.from(
     `${jiraEmail}:${jiraApiToken}`,
   ).toString("base64")}`;
@@ -53,22 +60,47 @@ export async function syncJiraShifts() {
   console.log(
     "[jira-sync] Fetching Jira issues updated in the last 10 minutes",
   );
-  const response = await fetch(jiraUrl, {
-    headers: {
-      Authorization: authorization,
-      Accept: "application/json",
-    },
-  });
+  const issues = [];
+  let nextPageToken;
 
-  if (!response.ok) {
-    const responseBody = await response.text();
-    throw new Error(
-      `Jira API request failed with ${response.status} ${response.statusText}: ${responseBody}`,
-    );
-  }
+  do {
+    const params = new URLSearchParams({
+      jql: "updated >= -10m",
+      maxResults: "100",
+    });
+    for (const field of ["assignee", "status", "updated"]) {
+      params.append("fields", field);
+    }
+    if (nextPageToken) {
+      params.set("nextPageToken", nextPageToken);
+    }
 
-  const payload = await response.json();
-  const issues = Array.isArray(payload.issues) ? payload.issues : [];
+    const jiraUrl = `https://${normalizedJiraHost}/rest/api/3/search/jql?${params}`;
+    const response = await fetchImpl(jiraUrl, {
+      headers: {
+        Authorization: authorization,
+        Accept: "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      const responseBody = await response.text();
+      throw new Error(
+        `Jira API request failed with ${response.status} ${response.statusText}: ${responseBody}`,
+      );
+    }
+
+    const payload = await response.json();
+    if (Array.isArray(payload.issues)) {
+      issues.push(...payload.issues);
+    }
+
+    nextPageToken = payload.nextPageToken;
+    if (payload.isLast === true) {
+      nextPageToken = undefined;
+    }
+  } while (nextPageToken);
+
   const rows = issues.map((issue) => ({
     jira_issue_id: issue.id,
     staff_id: issue.fields?.assignee?.accountId || "unassigned",

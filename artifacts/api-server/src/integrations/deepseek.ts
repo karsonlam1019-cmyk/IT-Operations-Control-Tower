@@ -1,4 +1,9 @@
-import { readEnv, type IntegrationStatus } from "./config";
+import {
+  errorMessage,
+  fetchWithTimeout,
+  readEnv,
+  type IntegrationStatus,
+} from "./config";
 
 export type Citation = {
   document: string;
@@ -17,6 +22,7 @@ export type RagDocument = {
 
 export type DeepSeekConfig = {
   apiKey: string;
+  baseUrl: string;
   proModel: string;
   flashModel: string;
 };
@@ -75,6 +81,7 @@ export const RAG_DOCUMENTS: RagDocument[] = [
 export function getDeepSeekConfig(): Partial<DeepSeekConfig> {
   return {
     apiKey: readEnv("DEEPSEEK_API_KEY"),
+    baseUrl: readEnv("DEEPSEEK_BASE_URL") ?? "https://api.deepseek.com",
     proModel: readEnv("DEEPSEEK_PRO_MODEL") ?? "deepseek-v4-pro",
     flashModel: readEnv("DEEPSEEK_FLASH_MODEL") ?? "deepseek-v4-flash",
   };
@@ -84,7 +91,7 @@ export function isDeepSeekConfigured(): boolean {
   return Boolean(getDeepSeekConfig().apiKey);
 }
 
-const SIMILARITY_THRESHOLD = 0.78;
+const SIMILARITY_THRESHOLD = 0.15;
 
 export async function checkDeepSeekHealth(): Promise<IntegrationStatus> {
   if (!isDeepSeekConfigured()) {
@@ -95,43 +102,52 @@ export async function checkDeepSeekHealth(): Promise<IntegrationStatus> {
       message: "DEEPSEEK_API_KEY not configured; using representative RAG data",
     };
   }
-  return {
-    name: "deepseek",
-    configured: true,
-    status: "ok",
-    message: "API key configured",
-  };
-}
-
-function embedStub(text: string): number[] {
-  let hash = 0;
-  for (let i = 0; i < text.length; i++) {
-    hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+  const start = Date.now();
+  const cfg = getDeepSeekConfig();
+  try {
+    const res = await fetchWithTimeout(`${cfg.baseUrl}/models`, {
+      headers: { Authorization: `Bearer ${cfg.apiKey as string}` },
+    });
+    return {
+      name: "deepseek",
+      configured: true,
+      status: res.ok ? "ok" : "error",
+      latencyMs: Date.now() - start,
+      message: res.ok ? "DeepSeek API reachable" : `DeepSeek API returned ${res.status}`,
+    };
+  } catch (error) {
+    return {
+      name: "deepseek",
+      configured: true,
+      status: "error",
+      latencyMs: Date.now() - start,
+      message: errorMessage(error),
+    };
   }
-  return [hash % 100000, text.length % 1000];
 }
 
-async function embed(text: string): Promise<number[]> {
-  return embedStub(text);
-}
-
-function cosine(a: number[], b: number[]): number {
-  const norm = (v: number[]) => Math.sqrt(v.reduce((s, x) => s + x * x, 0));
-  let dot = 0;
-  for (let i = 0; i < Math.min(a.length, b.length); i++) dot += a[i] * b[i];
-  const na = norm(a);
-  const nb = norm(b);
-  return na && nb ? dot / (na * nb) : 0;
+function tokenize(text: string): Set<string> {
+  return new Set(
+    text
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .split(/\s+/)
+      .filter((token) => token.length > 2),
+  );
 }
 
 type RetrievedChunk = { doc: RagDocument; similarity: number };
 
 async function retrieve(query: string, topK: number): Promise<RetrievedChunk[]> {
-  const q = await embed(query);
-  return RAG_DOCUMENTS.map((doc) => ({
-    doc,
-    similarity: cosine(q, embedStub(doc.content)),
-  }))
+  const queryTokens = tokenize(query);
+  return RAG_DOCUMENTS.map((doc) => {
+    const documentTokens = tokenize(`${doc.section} ${doc.content}`);
+    const overlap = [...queryTokens].filter((token) => documentTokens.has(token)).length;
+    return {
+      doc,
+      similarity: queryTokens.size ? overlap / queryTokens.size : 0,
+    };
+  })
     .sort((a, b) => b.similarity - a.similarity)
     .slice(0, topK);
 }
@@ -141,6 +157,48 @@ export type RagAnswer = {
   confidence: number;
   citations: Citation[];
 };
+
+async function generateAnswer(query: string, chunks: RetrievedChunk[]): Promise<string> {
+  const cfg = getDeepSeekConfig();
+  if (!cfg.apiKey) {
+    return "Live DeepSeek guidance is not configured. Review the cited procedure excerpts with the Head of IT.";
+  }
+  const context = chunks
+    .map(({ doc }) => `[${doc.document} · ${doc.section} · p. ${doc.page}]\n${doc.content}`)
+    .join("\n\n");
+  const res = await fetchWithTimeout(`${cfg.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${cfg.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: cfg.flashModel,
+      temperature: 0.1,
+      max_tokens: 400,
+      messages: [
+        {
+          role: "system",
+          content:
+            "Answer only from the supplied verified IT procedure excerpts. Be concise, state uncertainty, and do not invent policy.",
+        },
+        {
+          role: "user",
+          content: `Question: ${query}\n\nVerified excerpts:\n${context}`,
+        },
+      ],
+    }),
+  });
+  if (!res.ok) throw new Error(`DeepSeek API returned ${res.status}`);
+  const payload = (await res.json()) as {
+    choices?: Array<{ message?: { content?: unknown } }>;
+  };
+  const answer = payload.choices?.[0]?.message?.content;
+  if (typeof answer !== "string" || !answer.trim()) {
+    throw new Error("DeepSeek returned an empty answer");
+  }
+  return answer.trim();
+}
 
 export async function searchKnowledgeBase(query: string): Promise<RagAnswer> {
   const chunks = await retrieve(query, 5);
@@ -154,10 +212,17 @@ export async function searchKnowledgeBase(query: string): Promise<RagAnswer> {
     };
   }
 
+  let answer: string;
+  try {
+    answer = await generateAnswer(query, chunks.slice(0, 3));
+  } catch {
+    answer =
+      "Live policy generation is temporarily unavailable. Review the cited verified procedure excerpts and consult the Head of IT before proceeding.";
+  }
   return {
-    answer: "Representative RAG answer. Connect DeepSeek API + pgvector for live retrieval-augmented generation.",
+    answer,
     confidence: Number(chunks[0].similarity.toFixed(2)),
-    citations: chunks.map(({ doc }) => ({
+    citations: chunks.slice(0, 3).map(({ doc }) => ({
       document: doc.document,
       section: doc.section,
       page: doc.page,

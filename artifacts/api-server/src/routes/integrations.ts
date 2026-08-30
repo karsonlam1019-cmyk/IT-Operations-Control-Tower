@@ -27,14 +27,14 @@ router.post("/rag/search", async (req, res) => {
 
 // /api/jira/tickets — work queue from Jira (falls back to representative data)
 router.get("/jira/tickets", async (_req, res) => {
-  const tickets = await listJiraTickets();
-  res.json({ tickets, source: "representative" });
+  const feed = await listJiraTickets();
+  res.json(feed);
 });
 
 // /api/vendor/submissions — vendor invoices/milestones via the vendor API
 router.get("/vendor/submissions", async (_req, res) => {
-  const submissions = await listVendorSubmissions();
-  res.json({ submissions, source: "representative" });
+  const feed = await listVendorSubmissions();
+  res.json(feed);
 });
 
 export default router;

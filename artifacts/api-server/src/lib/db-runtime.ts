@@ -15,6 +15,52 @@ type DbPool = {
   ) => Promise<{ rows: Record<string, unknown>[] }>;
 };
 
+export async function checkDatabaseHealth(): Promise<{
+  name: "postgresql";
+  configured: boolean;
+  status: "ok" | "not_configured" | "error";
+  latencyMs?: number;
+  message: string;
+}> {
+  if (!isDbConfigured()) {
+    return {
+      name: "postgresql",
+      configured: false,
+      status: "not_configured",
+      message: "DATABASE_URL not configured; using representative operational data",
+    };
+  }
+  const start = Date.now();
+  const pool = await getPool();
+  if (!pool) {
+    return {
+      name: "postgresql",
+      configured: true,
+      status: "error",
+      latencyMs: Date.now() - start,
+      message: "PostgreSQL client could not be initialized",
+    };
+  }
+  try {
+    await pool.query("SELECT 1");
+    return {
+      name: "postgresql",
+      configured: true,
+      status: "ok",
+      latencyMs: Date.now() - start,
+      message: "PostgreSQL reachable",
+    };
+  } catch (error) {
+    return {
+      name: "postgresql",
+      configured: true,
+      status: "error",
+      latencyMs: Date.now() - start,
+      message: error instanceof Error ? error.message : "PostgreSQL health check failed",
+    };
+  }
+}
+
 let poolPromise: Promise<DbPool | null> | null = null;
 
 function isDbConfigured(): boolean {

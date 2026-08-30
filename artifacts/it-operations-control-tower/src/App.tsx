@@ -276,8 +276,9 @@ function IntegrationPulse() {
   const configuredOk = statuses.filter((s: IntegrationStatus) => s.status === 'ok').length;
   const total = statuses.length;
   const connected = statuses.filter((s: IntegrationStatus) => s.configured).length;
+  const unavailable = statuses.filter((s: IntegrationStatus) => s.status !== 'ok');
   return (
-    <div className="pulse-mini">
+    <div className="pulse-mini" title={unavailable.map((s: IntegrationStatus) => `${s.name}: ${s.message ?? s.status}`).join('\n')}>
       <div className="pulse-mini-heading">
         <span className="signal-dot" /> Integrations{' '}
         <span className="font-mono">{healthQuery.isLoading ? '...' : `${configuredOk}/${total || 0}`}</span>
@@ -287,6 +288,8 @@ function IntegrationPulse() {
           ? statuses.map((s: IntegrationStatus, i: number) => (
               <i
                 key={s.name}
+                aria-label={`${s.name}: ${s.status}`}
+                title={`${s.name}: ${s.message ?? s.status}`}
                 style={{
                   height: s.status === 'ok' ? 92 : s.status === 'error' ? 30 : 55,
                   background: s.status === 'ok' ? 'var(--accent)' : s.status === 'error' ? '#e5484d' : undefined,
@@ -295,7 +298,7 @@ function IntegrationPulse() {
             ))
           : [40, 55, 45, 60].map((h, i) => <i style={{ height: h }} key={i} />)}
       </div>
-      <small>{healthQuery.isLoading ? 'Checking service feeds…' : `${connected} of ${total || 0} services configured`}</small>
+      <small>{healthQuery.isLoading ? 'Checking service feeds…' : unavailable.length ? `${configuredOk} healthy · ${unavailable.length} fallback/offline` : `${connected} of ${total || 0} services configured`}</small>
     </div>
   );
 }
@@ -409,12 +412,13 @@ function DashboardPage() {
 function JiraQueueSection() {
   const jira = useJiraTickets();
   const tickets = jira.data?.tickets ?? [];
+  const sourceLabel = jira.data?.degraded ? `${jira.data.source} fallback` : jira.data?.source;
   return (
     <section className="panel animate-in">
       <SectionHeading
         eyebrow="Jira work queue"
         title="Live tickets"
-        action={<span className="muted-label">Source: {jira.data?.source ?? '…'}</span>}
+        action={<span className="muted-label" title={jira.data?.message}>Source: {sourceLabel ?? '…'}</span>}
       />
       {jira.isLoading ? <LoadingRows count={3} /> : tickets.length ? <div className="activity-table">
         <div className="table-head"><span>Key</span><span>Summary</span><span>Status</span><span>Env</span><span>Assignee</span></div>
@@ -474,12 +478,13 @@ function ReleasePage() {
 function VendorSubmissionsSection() {
   const vendorQuery = useVendorSubmissions();
   const submissions = vendorQuery.data?.submissions ?? [];
+  const sourceLabel = vendorQuery.data?.degraded ? `${vendorQuery.data.source} fallback` : vendorQuery.data?.source;
   return (
     <section className="panel animate-in">
       <SectionHeading
         eyebrow="Vendor API"
         title="Incoming submissions"
-        action={<span className="muted-label">Source: {vendorQuery.data?.source ?? '…'}</span>}
+        action={<span className="muted-label" title={vendorQuery.data?.message}>Source: {sourceLabel ?? '…'}</span>}
       />
       {vendorQuery.isLoading ? <LoadingRows count={3} /> : submissions.length ? <div className="activity-table">
         <div className="table-head"><span>Type</span><span>PO</span><span>Amount</span><span>Vendor</span><span>Submitted</span></div>

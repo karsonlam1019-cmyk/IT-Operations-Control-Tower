@@ -12,7 +12,7 @@ export type IntegrationStatus = {
   configured: boolean;
   status: 'ok' | 'error' | 'not_configured';
   latencyMs?: number;
-  message: string;
+  message?: string;
 };
 
 export type JiraTicket = {
@@ -34,8 +34,13 @@ export type VendorSubmission = {
 };
 
 type HealthResponse = { integrations: IntegrationStatus[] };
-type JiraResponse = { tickets: JiraTicket[]; source: string };
-type VendorResponse = { submissions: VendorSubmission[]; source: string };
+type IntegrationFeed = {
+  source: string;
+  degraded?: boolean;
+  message?: string;
+};
+type JiraResponse = IntegrationFeed & { tickets: JiraTicket[] };
+type VendorResponse = IntegrationFeed & { submissions: VendorSubmission[] };
 
 async function getJSON<T>(path: string): Promise<T> {
   const res = await fetch(path);

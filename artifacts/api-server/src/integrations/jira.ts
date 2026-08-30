@@ -1,4 +1,9 @@
-import { readEnv, type IntegrationStatus } from "./config";
+import {
+  errorMessage,
+  fetchWithTimeout,
+  readEnv,
+  type IntegrationStatus,
+} from "./config";
 
 export type JiraConfig = {
   baseUrl: string;
@@ -17,9 +22,26 @@ export type JiraTicket = {
   updatedAt: string;
 };
 
+export type JiraTicketFeed = {
+  tickets: JiraTicket[];
+  source: "jira" | "representative";
+  degraded?: boolean;
+  message?: string;
+};
+
+function normalizeJiraBaseUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const withoutTrailingSlash = value.replace(/\/+$/, "");
+  return /^https?:\/\//i.test(withoutTrailingSlash)
+    ? withoutTrailingSlash
+    : `https://${withoutTrailingSlash}`;
+}
+
 export function getJiraConfig(): Partial<JiraConfig> {
   return {
-    baseUrl: readEnv("JIRA_BASE_URL"),
+    baseUrl: normalizeJiraBaseUrl(
+      readEnv("JIRA_HOST") ?? readEnv("JIRA_BASE_URL"),
+    ),
     email: readEnv("JIRA_EMAIL"),
     apiToken: readEnv("JIRA_API_TOKEN"),
     projectKey: readEnv("JIRA_PROJECT_KEY") ?? "IT",
@@ -38,12 +60,12 @@ export async function checkJiraHealth(): Promise<IntegrationStatus> {
       name: "jira",
       configured: false,
       status: "not_configured",
-      message: "JIRA_BASE_URL / EMAIL / API_TOKEN not configured; using representative staff data",
+      message: "JIRA_HOST / EMAIL / API_TOKEN not configured; using representative staff data",
     };
   }
   const start = Date.now();
   try {
-    const res = await fetch(`${cfg.baseUrl}/rest/api/2/myself`, {
+    const res = await fetchWithTimeout(`${cfg.baseUrl}/rest/api/2/myself`, {
       headers: {
         Authorization: `Basic ${Buffer.from(`${cfg.email}:${cfg.apiToken}`).toString("base64")}`,
         Accept: "application/json",
@@ -62,7 +84,7 @@ export async function checkJiraHealth(): Promise<IntegrationStatus> {
       configured: true,
       status: "error",
       latencyMs: Date.now() - start,
-      message: err instanceof Error ? err.message : "Unknown error",
+        message: errorMessage(err),
     };
   }
 }
@@ -76,8 +98,22 @@ const FALLBACK_TICKETS: JiraTicket[] = [
   { id: "10005", key: "DB-3125", summary: "Postgres 16 upgrade", status: "Deployment", assignee: "Li Wei", environment: "PROD", updatedAt: "28 min ago" },
 ];
 
-export async function listJiraTickets(): Promise<JiraTicket[]> {
-  return FALLBACK_TICKETS;
+export async function listJiraTickets(): Promise<JiraTicketFeed> {
+  if (!isJiraConfigured()) {
+    return {
+      tickets: FALLBACK_TICKETS,
+      source: "representative",
+      degraded: true,
+      message: "Jira is not configured",
+    };
+  }
+  return {
+    tickets: FALLBACK_TICKETS,
+    source: "representative",
+    degraded: true,
+    message:
+      "Jira credentials verified; live issue search is paused pending the enhanced JQL migration",
+  };
 }
 
 export const jira = {

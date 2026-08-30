@@ -33,6 +33,7 @@ import type {
   GetBudgetSummaryParams,
   HealthStatus,
   InvoiceInput,
+  JiraSyncResult,
   ListDlqEntriesParams,
   PaidInput,
   PaymentSchedule,
@@ -305,6 +306,78 @@ export function useListStaff<TData = Awaited<ReturnType<typeof listStaff>>, TErr
 
 
 
+
+export const getSyncStaffJiraUrl = () => {
+
+
+
+
+  return `/api/staff/sync-jira`
+}
+
+/**
+ * Runs the server-side Jira shift synchronizer and returns the number of processed shifts.
+ * @summary Sync staff shifts from Jira
+ */
+export const syncStaffJira = async ( options?: Parameters<typeof customFetch>[1]): Promise<JiraSyncResult> => {
+
+  return customFetch<JiraSyncResult>(getSyncStaffJiraUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getSyncStaffJiraMutationOptions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof syncStaffJira>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof syncStaffJira>>, TError,void, TContext> => {
+
+const mutationKey = ['syncStaffJira'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof syncStaffJira>>, void> = () => {
+
+
+          return  syncStaffJira(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SyncStaffJiraMutationResult = NonNullable<Awaited<ReturnType<typeof syncStaffJira>>>
+
+    export type SyncStaffJiraMutationError = ErrorType<ErrorResponse>
+
+    /**
+ * @summary Sync staff shifts from Jira
+ */
+export const useSyncStaffJira = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof syncStaffJira>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof syncStaffJira>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getSyncStaffJiraMutationOptions(options));
+    }
 
 export const getUpdateStaffStatusUrl = (id: string,) => {
 

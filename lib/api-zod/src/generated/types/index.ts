@@ -25,6 +25,7 @@ export * from './getBudgetSummaryParams';
 export * from './healthStatus';
 export * from './invoiceInput';
 export * from './invoiceInputOcrInvoiceData';
+export * from './jiraSyncResult';
 export * from './listDlqEntriesParams';
 export * from './monthlyPayment';
 export * from './paidInput';

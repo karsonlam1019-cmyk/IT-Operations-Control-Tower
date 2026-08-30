@@ -52,6 +52,19 @@ export const ListStaffResponse = zod.array(ListStaffResponseItem)
 
 
 /**
+ * Runs the server-side Jira shift synchronizer and returns the number of processed shifts.
+ * @summary Sync staff shifts from Jira
+ */
+export const syncStaffJiraResponseCountMin = 0;
+
+
+
+export const SyncStaffJiraResponse = zod.object({
+  "count": zod.int().min(syncStaffJiraResponseCountMin)
+})
+
+
+/**
  * @summary Update a staff member's status
  */
 export const UpdateStaffStatusParams = zod.object({

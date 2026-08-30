@@ -121,6 +121,11 @@ export interface ErrorResponse {
   code?: string;
 }
 
+export interface JiraSyncResult {
+  /** @minimum 0 */
+  count: number;
+}
+
 export type CreateProcurementInputRegion = typeof CreateProcurementInputRegion[keyof typeof CreateProcurementInputRegion];
 
 

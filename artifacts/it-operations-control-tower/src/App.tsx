@@ -50,6 +50,7 @@ import {
   getListProcurementRecordsQueryKey,
   getListReleaseGatesQueryKey,
   getListStaffQueryKey,
+  useSyncStaffJira,
   useAdvanceProcurementStatus,
   useCreatePaymentSchedule,
   useCreateProcurementRecord,
@@ -431,6 +432,7 @@ function JiraQueueSection() {
 function StaffPage() {
   const query = useListStaff({ query: { queryKey: getListStaffQueryKey(), refetchInterval: 15000 } });
   const update = useUpdateStaffStatus();
+  const syncJira = useSyncStaffJira();
   const client = useQueryClient();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('All');
@@ -447,10 +449,19 @@ function StaffPage() {
       onError: () => toast.error('Status update failed'),
     });
   };
+  const runJiraSync = () => {
+    syncJira.mutate(undefined, {
+      onSuccess: (result) => {
+        void client.invalidateQueries({ queryKey: getListStaffQueryKey() });
+        toast.success(`Jira sync complete: ${result.count} shift${result.count === 1 ? '' : 's'} processed`);
+      },
+      onError: () => toast.error('Jira sync failed. Check the integration status and try again.'),
+    });
+  };
   return <div className="page-stack">
     <div className="toolbar panel"><div className="search-field"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search people, teams, regions" data-testid="input-search-staff" /></div><div className="filter-group"><Filter size={14} /><select value={status} onChange={e => setStatus(e.target.value)} data-testid="select-staff-status">{statuses.map(value => <option value={value} key={value}>{value}</option>)}</select></div><span className="toolbar-count font-mono">{filtered.length} / {staff.length} visible</span></div>
     <section className="panel">
-      <SectionHeading eyebrow="Coverage board" title="Shift signal" action={<div className="legend"><span><i className="legend-dot live" /> Live</span><span><i className="legend-dot stale" /> Stale</span></div>} />
+      <SectionHeading eyebrow="Coverage board" title="Shift signal" action={<div className="section-heading-actions"><div className="legend"><span><i className="legend-dot live" /> Live</span><span><i className="legend-dot stale" /> Stale</span></div><button className="button button-outline" onClick={runJiraSync} disabled={syncJira.isPending} data-testid="button-sync-jira"><RefreshCw size={14} className={syncJira.isPending ? 'animate-spin' : ''} />{syncJira.isPending ? 'Syncing Jira…' : 'Sync Jira'}</button></div>} />
       {query.isError ? <ErrorState onRetry={() => void query.refetch()} /> : query.isLoading ? <LoadingRows count={6} /> : !filtered.length ? <EmptyState title={staff.length ? 'No matching staff' : 'No staff feed available'} detail={staff.length ? 'Adjust the search or status filter.' : 'Once monitored staff are connected, their shift signal will appear here.'} icon={UsersRound} /> : <div className="staff-table">
         <div className="table-head staff-head"><span>Staff member</span><span>Team / region</span><span>Ticket</span><span>Environment</span><span>Signal</span><span>Action</span></div>
         {filtered.map(member => <div className="table-row staff-row" key={member.id} data-testid={`row-staff-${member.id}`}><span className="person-cell"><span className={`avatar ${member.isStale ? 'avatar-stale' : ''}`}>{member.initials}</span><span><b>{member.name}</b><small>{member.role}</small></span></span><span><b>{member.team}</b><small>{member.region}</small></span><span className="font-mono">{member.ticket || 'No ticket'}</span><span className="font-mono">{member.environment || '—'}</span><span><StatusPill value={member.isStale ? 'Stale' : member.status} testId={`status-staff-${member.id}`} /><small className="table-subtext">Updated {formatTime(member.updatedAt)}</small></span><button className="row-action" onClick={() => changeStatus(member)} disabled={update.isPending} data-testid={`button-toggle-status-${member.id}`}>{member.status.toLowerCase().includes('active') ? <PauseCircle size={15} /> : <Play size={15} />}{member.status.toLowerCase().includes('active') ? 'Set away' : 'Set active'}</button></div>)}

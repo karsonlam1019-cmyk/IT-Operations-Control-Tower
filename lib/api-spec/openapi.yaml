@@ -52,6 +52,25 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/StaffMember"
+  /staff/sync-jira:
+    post:
+      operationId: syncStaffJira
+      tags: [operations]
+      summary: Sync staff shifts from Jira
+      description: Runs the server-side Jira shift synchronizer and returns the number of processed shifts.
+      responses:
+        "200":
+          description: Jira shift synchronization result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JiraSyncResult"
+        "503":
+          description: Jira synchronization is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /staff/{id}:
     patch:
       operationId: updateStaffStatus
@@ -685,6 +704,11 @@ components:
       properties:
         error: { type: string }
         code: { type: string }
+    JiraSyncResult:
+      type: object
+      required: [count]
+      properties:
+        count: { type: number, minimum: 0 }
     CreateProcurementInput:
       type: object
       required:

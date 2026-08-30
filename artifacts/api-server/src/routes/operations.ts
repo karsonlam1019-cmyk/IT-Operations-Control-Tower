@@ -21,6 +21,7 @@ import {
   GetThreeWayMatchParams,
   GetThreeWayMatchResponse,
   GetTreasuryAnalyticsResponse,
+  JiraSyncResult,
   ListAuditLogsResponse,
   ListDlqEntriesQueryParams,
   ListDlqEntriesResponse,
@@ -51,6 +52,8 @@ import {
   UpdateStaffStatusParams,
   UpdateStaffStatusResponse,
 } from "@workspace/api-zod";
+// @ts-ignore The standalone JavaScript service is shared with the sync runner.
+import { syncJiraShifts } from "../../../../src/services/jiraSync.js";
 import { deepseek } from "../integrations/deepseek";
 import {
   approveProcurement,
@@ -142,6 +145,30 @@ router.get("/dashboard/summary", async (_req, res) => {
 router.get("/staff", async (_req, res) => {
   const db = await loadStaff();
   res.json(ListStaffResponse.parse(db ?? staff));
+});
+
+router.post("/staff/sync-jira", async (req, res): Promise<void> => {
+  try {
+    const result = await syncJiraShifts();
+    res.json(JiraSyncResult.parse(result));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const isConfigurationError = message.startsWith(
+      "Missing required environment variables:",
+    );
+    req.log.error(
+      { err: error },
+      isConfigurationError
+        ? "Jira shift sync is not configured"
+        : "Jira shift sync failed",
+    );
+    res.status(503).json({
+      error: isConfigurationError
+        ? "Jira shift sync is not configured on the server"
+        : "Jira shift sync failed; check the integration logs",
+      code: "JIRA_SYNC_UNAVAILABLE",
+    });
+  }
 });
 
 router.patch("/staff/:id", async (req, res) => {

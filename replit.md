@@ -8,6 +8,7 @@ Enterprise command center for staff operations, release governance, procurement 
 - Replit workflow `IT Operations Control Tower` — runs `PORT=21727 BASE_PATH=/ pnpm --filter @workspace/it-operations-control-tower run dev`
 - `pnpm --filter @workspace/api-server run dev` — run the API server locally with `PORT=8080`
 - `PORT=21727 BASE_PATH=/ pnpm --filter @workspace/it-operations-control-tower run dev` — run the dashboard locally
+- Optional scheduled Jira shifts: set `JIRA_SYNC_INTERVAL_MINUTES` and run `pnpm --filter @workspace/scripts run jira-sync` as a long-running worker. Leave it blank for a one-shot sync.
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec

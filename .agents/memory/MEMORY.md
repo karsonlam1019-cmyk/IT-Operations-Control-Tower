@@ -1,0 +1,1 @@
+- [Jira Cloud search endpoint](jira-cloud-search-endpoint.md) — this tenant rejects the legacy v3 search route and requires the enhanced JQL route.

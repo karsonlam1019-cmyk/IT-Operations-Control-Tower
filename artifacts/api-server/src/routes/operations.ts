@@ -92,17 +92,29 @@ const router: IRouter = Router();
 const dbBreaker = new CircuitBreaker("db", 5, 30_000);
 const budgetBreaker = new CircuitBreaker("budget-fx", 5, 30_000);
 
-type SyncFailureCategory = "CONFIGURATION" | "JIRA" | "SUPABASE";
+type SyncFailureCategory =
+  | "CONFIGURATION"
+  | "JIRA"
+  | "SUPABASE"
+  | "UNKNOWN";
 
 function getSyncFailureCategory(error: unknown): SyncFailureCategory {
-  const message = error instanceof Error ? error.message : String(error);
+  if (!(error instanceof Error)) {
+    return "UNKNOWN";
+  }
+
+  const message = error.message;
   if (message.startsWith("Missing required environment variables:")) {
     return "CONFIGURATION";
   }
-  if (message.toLowerCase().includes("supabase")) {
+  const normalizedMessage = message.toLowerCase();
+  if (normalizedMessage.includes("supabase")) {
     return "SUPABASE";
   }
-  return "JIRA";
+  if (normalizedMessage.includes("jira")) {
+    return "JIRA";
+  }
+  return "UNKNOWN";
 }
 
 const staff = [

@@ -706,7 +706,7 @@ components:
         code: { type: string }
         category:
           type: string
-          enum: [CONFIGURATION, JIRA, SUPABASE]
+          enum: [CONFIGURATION, JIRA, SUPABASE, UNKNOWN]
     JiraSyncResult:
       type: object
       required: [count]

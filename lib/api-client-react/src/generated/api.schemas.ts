@@ -123,6 +123,7 @@ export const ErrorResponseCategory = {
   CONFIGURATION: 'CONFIGURATION',
   JIRA: 'JIRA',
   SUPABASE: 'SUPABASE',
+  UNKNOWN: 'UNKNOWN',
 } as const;
 
 export interface ErrorResponse {

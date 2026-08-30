@@ -104,4 +104,51 @@ describe("POST /api/staff/sync-jira", () => {
     });
     expect(JSON.stringify(result.body)).not.toContain("connection refused");
   });
+
+  it("uses a safe generic response when the synchronizer throws a non-Error provider payload", async () => {
+    const sensitiveProviderPayload = {
+      response: {
+        status: 401,
+        data: {
+          error: "invalid_token",
+          access_token: "provider-secret-token",
+          authorization: "Basic provider-credentials",
+        },
+      },
+    };
+    mockedSyncJiraShifts.mockRejectedValue(sensitiveProviderPayload);
+
+    const result = await postSync();
+
+    expect(result.status).toBe(503);
+    expect(result.body).toEqual({
+      error: "Jira shift sync failed; check the integration logs",
+      code: "JIRA_SYNC_UNAVAILABLE",
+      category: "UNKNOWN",
+    });
+    expect(JSON.stringify(result.body)).not.toContain("provider-secret-token");
+    expect(JSON.stringify(result.body)).not.toContain("provider-credentials");
+    expect(JSON.stringify(result.body)).not.toContain("invalid_token");
+  });
+
+  it("does not classify an unrecognized Error by leaking its provider payload", async () => {
+    const providerPayload = JSON.stringify({
+      status: 502,
+      response: "upstream details",
+      access_token: "provider-secret-token",
+    });
+    mockedSyncJiraShifts.mockRejectedValue(
+      new Error(`Unexpected synchronizer failure: ${providerPayload}`),
+    );
+
+    const result = await postSync();
+
+    expect(result.body).toEqual({
+      error: "Jira shift sync failed; check the integration logs",
+      code: "JIRA_SYNC_UNAVAILABLE",
+      category: "UNKNOWN",
+    });
+    expect(JSON.stringify(result.body)).not.toContain("upstream details");
+    expect(JSON.stringify(result.body)).not.toContain("provider-secret-token");
+  });
 });

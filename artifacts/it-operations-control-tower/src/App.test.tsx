@@ -100,6 +100,15 @@ describe("StaffPage Jira sync", () => {
       "Shift data could not be saved. Check the data service and try again.",
       "Supabase shifts upsert failed: connection refused",
     ],
+    [
+      "UNKNOWN",
+      "Jira sync failed unexpectedly. Check the integration logs and try again.",
+      JSON.stringify({
+        status: 502,
+        response: "provider response details",
+        access_token: "provider-secret-token",
+      }),
+    ],
   ])("shows a safe actionable message for %s sync failures", async (category, message, rawDetail) => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);

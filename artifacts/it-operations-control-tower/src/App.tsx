@@ -174,12 +174,13 @@ function formatDate(value?: string) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
-type SyncFailureCategory = 'CONFIGURATION' | 'JIRA' | 'SUPABASE';
+type SyncFailureCategory = 'CONFIGURATION' | 'JIRA' | 'SUPABASE' | 'UNKNOWN';
 
 const syncFailureMessages: Record<SyncFailureCategory, string> = {
   CONFIGURATION: 'Jira sync is not configured. Ask an administrator to configure the server integration.',
   JIRA: 'Jira is unavailable. Check Jira status and try again.',
   SUPABASE: 'Shift data could not be saved. Check the data service and try again.',
+  UNKNOWN: 'Jira sync failed unexpectedly. Check the integration logs and try again.',
 };
 
 function getSyncFailureMessage(error: unknown) {

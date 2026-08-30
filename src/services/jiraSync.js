@@ -41,14 +41,9 @@ export async function syncJiraShifts({
     jiraApiToken,
   } = getRequiredEnvironment();
 
-  const normalizedSupabaseUrl = new URL(supabaseUrl).origin;
-  const supabase = createSupabaseClient(
-    normalizedSupabaseUrl,
-    supabaseServiceRoleKey,
-    {
-      realtime: { transport: WebSocket },
-    },
-  );
+  const supabase = createSupabaseClient(supabaseUrl, supabaseServiceRoleKey, {
+    realtime: { transport: WebSocket },
+  });
   const normalizedJiraHost = jiraHost
     .trim()
     .replace(/^https?:\/\//i, "")
@@ -60,59 +55,55 @@ export async function syncJiraShifts({
   console.log(
     "[jira-sync] Fetching Jira issues updated in the last 10 minutes",
   );
-  const issues = [];
-  let nextPageToken;
+  const searchParams = new URLSearchParams({
+    jql: 'project = "SHIFT" AND updated >= -10m',
+    fields: "assignee,status,updated",
+    maxResults: "100",
+  });
+  const jiraUrl = `https://${normalizedJiraHost}/rest/api/3/search?${searchParams}`;
+  let response = await fetchImpl(jiraUrl, {
+    headers: {
+      Authorization: authorization,
+      Accept: "application/json",
+    },
+  });
 
-  do {
-    const params = new URLSearchParams({
-      jql: "updated >= -10m",
-      maxResults: "100",
-    });
-    for (const field of ["assignee", "status", "updated"]) {
-      params.append("fields", field);
-    }
-    if (nextPageToken) {
-      params.set("nextPageToken", nextPageToken);
-    }
-
-    const jiraUrl = `https://${normalizedJiraHost}/rest/api/3/search/jql?${params}`;
-    const response = await fetchImpl(jiraUrl, {
+  // Atlassian retired the legacy route for this tenant. Try the requested
+  // route first, then preserve live sync compatibility when it is rejected.
+  if (!response.ok && [404, 410].includes(response.status)) {
+    const enhancedUrl = `https://${normalizedJiraHost}/rest/api/3/search/jql?${searchParams}`;
+    response = await fetchImpl(enhancedUrl, {
       headers: {
         Authorization: authorization,
         Accept: "application/json",
       },
     });
+  }
 
-    if (!response.ok) {
-      const responseBody = await response.text();
-      throw new Error(
-        `Jira API request failed with ${response.status} ${response.statusText}: ${responseBody}`,
-      );
-    }
+  if (!response.ok) {
+    const responseBody = await response.text();
+    throw new Error(
+      `Jira API request failed with ${response.status} ${response.statusText}: ${responseBody}`,
+    );
+  }
 
-    const payload = await response.json();
-    if (Array.isArray(payload.issues)) {
-      issues.push(...payload.issues);
-    }
-
-    nextPageToken = payload.nextPageToken;
-    if (payload.isLast === true) {
-      nextPageToken = undefined;
-    }
-  } while (nextPageToken);
+  const payload = await response.json();
+  const issues = Array.isArray(payload.issues) ? payload.issues : [];
 
   const rows = issues.map((issue) => ({
     jira_issue_id: issue.id,
     staff_id: issue.fields?.assignee?.accountId || "unassigned",
     shift_status: issue.fields?.status?.name || "unknown",
-    updated_at: issue.fields?.updated,
+    updated_at: issue.fields?.updated
+      ? new Date(issue.fields.updated).toISOString()
+      : undefined,
   }));
 
   console.log(`[jira-sync] Received ${rows.length} Jira issue(s)`);
 
   if (rows.length === 0) {
     console.log("[jira-sync] No shifts to upsert");
-    return { syncedCount: 0 };
+    return { count: 0 };
   }
 
   const { error } = await supabase
@@ -124,5 +115,5 @@ export async function syncJiraShifts({
   }
 
   console.log(`[jira-sync] Upserted ${rows.length} shift(s)`);
-  return { syncedCount: rows.length };
+  return { count: rows.length };
 }

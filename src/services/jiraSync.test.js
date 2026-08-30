@@ -51,11 +51,11 @@ test("returns zero without calling Supabase when Jira has no updated issues", as
     }),
   });
 
-  assert.deepEqual(result, { syncedCount: 0 });
+  assert.deepEqual(result, { count: 0 });
   assert.equal(supabaseTableAccessed, false);
 });
 
-test("follows enhanced-search pagination and upserts the mapped shifts", async () => {
+test("fetches SHIFT issues and upserts the mapped shifts", async () => {
   const requests = [];
   const responses = [
     {
@@ -69,21 +69,6 @@ test("follows enhanced-search pagination and upserts the mapped shifts", async (
           },
         },
       ],
-      nextPageToken: "next-page-token",
-      isLast: false,
-    },
-    {
-      issues: [
-        {
-          id: "10002",
-          fields: {
-            assignee: null,
-            status: null,
-            updated: "2026-08-30T12:05:00.000+0000",
-          },
-        },
-      ],
-      isLast: true,
     },
   ];
   let upsertCall;
@@ -93,8 +78,9 @@ test("follows enhanced-search pagination and upserts the mapped shifts", async (
       requests.push({ url: new URL(url), options });
       return jsonResponse(responses.shift());
     },
-    createSupabaseClient: (url) => {
-      assert.equal(url, "https://example.supabase.co");
+    createSupabaseClient: (url, serviceRoleKey) => {
+      assert.equal(url, TEST_ENVIRONMENT.SUPABASE_URL);
+      assert.equal(serviceRoleKey, TEST_ENVIRONMENT.SUPABASE_SERVICE_ROLE_KEY);
       return {
         from(table) {
           assert.equal(table, "shifts");
@@ -109,18 +95,23 @@ test("follows enhanced-search pagination and upserts the mapped shifts", async (
     },
   });
 
-  assert.deepEqual(result, { syncedCount: 2 });
-  assert.equal(requests.length, 2);
-  assert.equal(requests[0].url.pathname, "/rest/api/3/search/jql");
-  assert.equal(requests[0].url.searchParams.get("jql"), "updated >= -10m");
-  assert.deepEqual(requests[0].url.searchParams.getAll("fields"), [
-    "assignee",
-    "status",
-    "updated",
-  ]);
+  assert.deepEqual(result, { count: 1 });
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url.pathname, "/rest/api/3/search");
+  assert.equal(requests[0].url.origin, "https://example.atlassian.net");
   assert.equal(
-    requests[1].url.searchParams.get("nextPageToken"),
-    "next-page-token",
+    requests[0].options.headers.Authorization,
+    `Basic ${Buffer.from(
+      `${TEST_ENVIRONMENT.JIRA_EMAIL}:${TEST_ENVIRONMENT.JIRA_API_TOKEN}`,
+    ).toString("base64")}`,
+  );
+  assert.equal(
+    requests[0].url.searchParams.get("jql"),
+    'project = "SHIFT" AND updated >= -10m',
+  );
+  assert.equal(
+    requests[0].url.searchParams.get("fields"),
+    "assignee,status,updated",
   );
   assert.deepEqual(upsertCall, {
     rows: [
@@ -128,13 +119,7 @@ test("follows enhanced-search pagination and upserts the mapped shifts", async (
         jira_issue_id: "10001",
         staff_id: "staff-1",
         shift_status: "Active",
-        updated_at: "2026-08-30T12:00:00.000+0000",
-      },
-      {
-        jira_issue_id: "10002",
-        staff_id: "unassigned",
-        shift_status: "unknown",
-        updated_at: "2026-08-30T12:05:00.000+0000",
+        updated_at: "2026-08-30T12:00:00.000Z",
       },
     ],
     options: { onConflict: "jira_issue_id" },

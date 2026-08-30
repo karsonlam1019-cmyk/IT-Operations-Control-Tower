@@ -1,9 +1,9 @@
 import { syncJiraShifts } from "../src/services/jiraSync.js";
 
 try {
-  const { syncedCount } = await syncJiraShifts();
+  const { count } = await syncJiraShifts();
   console.log(
-    `[jira-sync] Sync completed successfully: ${syncedCount} shift(s) synced`,
+    `[jira-sync] Sync completed successfully: ${count} shift(s) synced`,
   );
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);

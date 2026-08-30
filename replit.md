@@ -4,8 +4,8 @@ Enterprise command center for staff operations, release governance, procurement 
 
 ## Run & Operate
 
-- Replit workflow `API Server` — runs `PORT=8080 pnpm --filter @workspace/api-server run dev`
-- Replit workflow `IT Operations Control Tower` — runs `PORT=21727 BASE_PATH=/ pnpm --filter @workspace/it-operations-control-tower run dev`
+- Managed artifact workflow `artifacts/api-server: API Server` — runs the API service with its injected port
+- Managed artifact workflow `artifacts/it-operations-control-tower: web` — runs the dashboard with its injected port and base path
 - `pnpm --filter @workspace/api-server run dev` — run the API server locally with `PORT=8080`
 - `PORT=21727 BASE_PATH=/ pnpm --filter @workspace/it-operations-control-tower run dev` — run the dashboard locally
 - Optional scheduled Jira shifts: set `JIRA_SYNC_INTERVAL_MINUTES` and run `pnpm --filter @workspace/scripts run jira-sync` as a long-running worker. Leave it blank for a one-shot sync.
@@ -48,7 +48,7 @@ _Populate as you build — explicit user instructions worth remembering across s
 ## Gotchas
 
 - Run API codegen after every OpenAPI change.
-- Start app services through their managed workflows so `PORT` and `BASE_PATH` are provided.
+- Start app services through their managed artifact workflows so `PORT` and `BASE_PATH` are provided.
 
 ## Pointers
 

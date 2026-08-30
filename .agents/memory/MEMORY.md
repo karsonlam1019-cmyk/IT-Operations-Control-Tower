@@ -1,1 +1,2 @@
 - [Jira Cloud search endpoint](jira-cloud-search-endpoint.md) — this tenant rejects the legacy v3 search route and requires the enhanced JQL route.
+- [Artifact workflow port ownership](artifact-workflow-port-ownership.md) — managed artifact workflows must be the only services owning their assigned preview ports.

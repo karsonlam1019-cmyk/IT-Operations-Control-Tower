@@ -20,6 +20,7 @@ export * from './createProcurementInputRegion';
 export * from './dashboardSummary';
 export * from './dlqEntry';
 export * from './errorResponse';
+export * from './errorResponseCategory';
 export * from './fxRate';
 export * from './getBudgetSummaryParams';
 export * from './healthStatus';

@@ -92,6 +92,19 @@ const router: IRouter = Router();
 const dbBreaker = new CircuitBreaker("db", 5, 30_000);
 const budgetBreaker = new CircuitBreaker("budget-fx", 5, 30_000);
 
+type SyncFailureCategory = "CONFIGURATION" | "JIRA" | "SUPABASE";
+
+function getSyncFailureCategory(error: unknown): SyncFailureCategory {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.startsWith("Missing required environment variables:")) {
+    return "CONFIGURATION";
+  }
+  if (message.toLowerCase().includes("supabase")) {
+    return "SUPABASE";
+  }
+  return "JIRA";
+}
+
 const staff = [
   { id: "s-001", name: "Maya Chen", initials: "MC", role: "Incident Commander", team: "Platform Reliability", region: "HK", status: "On Call - Incidents", ticket: "INC-4821", environment: "PROD", eta: "42 min", updatedAt: "1 min ago", isStale: false },
   { id: "s-002", name: "Ethan Wong", initials: "EW", role: "Release Engineer", team: "Enterprise Apps", region: "HK", status: "Deployment Window", ticket: "REL-2394", environment: "UAT", eta: "1 hr 20 min", updatedAt: "2 min ago", isStale: false },
@@ -152,21 +165,19 @@ router.post("/staff/sync-jira", async (req, res): Promise<void> => {
     const result = await syncJiraShifts();
     res.json(SyncStaffJiraResponse.parse(result));
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const isConfigurationError = message.startsWith(
-      "Missing required environment variables:",
-    );
+    const category = getSyncFailureCategory(error);
     req.log.error(
       { err: error },
-      isConfigurationError
+      category === "CONFIGURATION"
         ? "Jira shift sync is not configured"
         : "Jira shift sync failed",
     );
     res.status(503).json({
-      error: isConfigurationError
+      error: category === "CONFIGURATION"
         ? "Jira shift sync is not configured on the server"
         : "Jira shift sync failed; check the integration logs",
       code: "JIRA_SYNC_UNAVAILABLE",
+      category,
     });
   }
 });

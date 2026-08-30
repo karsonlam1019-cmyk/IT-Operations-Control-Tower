@@ -116,9 +116,19 @@ export interface AuditLog {
   deputy: boolean;
 }
 
+export type ErrorResponseCategory = typeof ErrorResponseCategory[keyof typeof ErrorResponseCategory];
+
+
+export const ErrorResponseCategory = {
+  CONFIGURATION: 'CONFIGURATION',
+  JIRA: 'JIRA',
+  SUPABASE: 'SUPABASE',
+} as const;
+
 export interface ErrorResponse {
   error: string;
   code?: string;
+  category?: ErrorResponseCategory;
 }
 
 export interface JiraSyncResult {

@@ -704,6 +704,9 @@ components:
       properties:
         error: { type: string }
         code: { type: string }
+        category:
+          type: string
+          enum: [CONFIGURATION, JIRA, SUPABASE]
     JiraSyncResult:
       type: object
       required: [count]

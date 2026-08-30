@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -30,9 +30,9 @@ const refreshedStaff = {
   isStale: false,
 };
 
-function jsonResponse(payload: unknown) {
+function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
-    status: 200,
+    status,
     headers: { "content-type": "application/json" },
   });
 }
@@ -40,6 +40,7 @@ function jsonResponse(payload: unknown) {
 describe("StaffPage Jira sync", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    cleanup();
   });
 
   it("refreshes the staff query after a successful sync", async () => {
@@ -81,5 +82,60 @@ describe("StaffPage Jira sync", () => {
           String(input) === "/api/staff" && init?.method === "GET",
       ),
     ).toHaveLength(2);
+  });
+
+  it.each([
+    [
+      "CONFIGURATION",
+      "Jira sync is not configured. Ask an administrator to configure the server integration.",
+      "Missing required environment variables: JIRA_API_TOKEN",
+    ],
+    [
+      "JIRA",
+      "Jira is unavailable. Check Jira status and try again.",
+      "Jira API request failed with 502 Bad Gateway: provider response details",
+    ],
+    [
+      "SUPABASE",
+      "Shift data could not be saved. Check the data service and try again.",
+      "Supabase shifts upsert failed: connection refused",
+    ],
+  ])("shows a safe actionable message for %s sync failures", async (category, message, rawDetail) => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/staff/sync-jira") {
+        return jsonResponse({
+          error: "Jira shift sync failed; check the integration logs",
+          code: "JIRA_SYNC_UNAVAILABLE",
+          category,
+          detail: rawDetail,
+        }, 503);
+      }
+      if (path === "/api/staff") {
+        return jsonResponse([initialStaff]);
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <StaffPage />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("Stale Coverage")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("button-sync-jira"));
+
+    const syncError = await screen.findByTestId("sync-error");
+    expect(syncError).toHaveTextContent(message);
+    expect(syncError).not.toHaveTextContent(rawDetail);
+    expect(syncError).toHaveTextContent("Retry");
   });
 });

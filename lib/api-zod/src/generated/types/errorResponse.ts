@@ -5,8 +5,10 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { ErrorResponseCategory } from './errorResponseCategory';
 
 export interface ErrorResponse {
   error: string;
   code?: string;
+  category?: ErrorResponseCategory;
 }

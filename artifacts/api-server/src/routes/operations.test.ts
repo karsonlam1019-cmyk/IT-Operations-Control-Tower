@@ -70,6 +70,7 @@ describe("POST /api/staff/sync-jira", () => {
     expect(result.body).toEqual({
       error: "Jira shift sync is not configured on the server",
       code: "JIRA_SYNC_UNAVAILABLE",
+      category: "CONFIGURATION",
     });
   });
 
@@ -84,6 +85,7 @@ describe("POST /api/staff/sync-jira", () => {
     expect(result.body).toEqual({
       error: "Jira shift sync failed; check the integration logs",
       code: "JIRA_SYNC_UNAVAILABLE",
+      category: "JIRA",
     });
   });
 
@@ -98,6 +100,8 @@ describe("POST /api/staff/sync-jira", () => {
     expect(result.body).toEqual({
       error: "Jira shift sync failed; check the integration logs",
       code: "JIRA_SYNC_UNAVAILABLE",
+      category: "SUPABASE",
     });
+    expect(JSON.stringify(result.body)).not.toContain("connection refused");
   });
 });

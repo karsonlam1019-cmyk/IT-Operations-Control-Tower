@@ -11,6 +11,7 @@ Enterprise command center for staff operations, release governance, procurement 
 - Optional scheduled Jira shifts: set `JIRA_SYNC_INTERVAL_MINUTES` and run `pnpm --filter @workspace/scripts run jira-sync` as a long-running worker. Leave it blank for a one-shot sync.
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
+- `pnpm run smoke:dashboard` — start both artifact-owned services on isolated ports, verify API health and dashboard HTML, and confirm clean process shutdown
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required env: `DATABASE_URL` — Postgres connection string

@@ -19,3 +19,26 @@ timeoutMs = 20000
 
 [nix]
 channel = "stable-25_05"
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "dashboard-smoke"
+
+[[workflows.workflow]]
+name = "dashboard-smoke"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm run smoke:dashboard"
+
+[workflows.workflow.metadata]
+isValidation = true

@@ -206,6 +206,22 @@ describe("StaffPage Jira sync", () => {
       if (path === "/api/health") {
         return jsonResponse({ status: "ok" });
       }
+      if (path === "/api/jira/tickets") {
+        return jsonResponse({
+          source: "jira",
+          tickets: [
+            {
+              id: "1001",
+              key: "SHIFT-1001",
+              summary: "Restore payment gateway",
+              status: "In Progress",
+              assignee: "Maya Chen",
+              environment: "PROD",
+              updatedAt: "2026-08-30T12:05:00.000Z",
+            },
+          ],
+        });
+      }
       throw new Error(`Unexpected request: ${path}`);
     });
     vi.stubGlobal("fetch", fetchMock);

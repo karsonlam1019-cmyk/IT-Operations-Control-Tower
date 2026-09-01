@@ -86,6 +86,7 @@ import { Link, Route, Switch, useLocation, useSearch, Router as WouterRouter } f
 import { ErrorBoundary } from '@/components/error-boundary';
 import {
   useIntegrationHealth,
+  useJiraTickets,
   useVendorSubmissions,
   type IntegrationStatus,
   type VendorSubmission,
@@ -400,8 +401,12 @@ export function DashboardPage() {
   const summaryQuery = useGetDashboardSummary({ query: { queryKey: getGetDashboardSummaryQueryKey(), refetchInterval: 30000 } });
   const staffQuery = useListStaff({ query: { queryKey: getListStaffQueryKey(), refetchInterval: 30000 } });
   const healthQuery = useHealthCheck({ query: { queryKey: getHealthCheckQueryKey(), refetchInterval: 30000 } });
+  const jiraTicketsQuery = useJiraTickets();
   const summary = summaryQuery.data as DashboardSummary | undefined;
   const staff = (staffQuery.data as StaffMember[] | undefined) ?? [];
+  const jiraTickets = (jiraTicketsQuery.data?.tickets ?? []).filter(
+    ticket => ticket.status.trim().toLowerCase() !== 'completed',
+  );
   const recentStaff = useMemo(() => staff.slice().sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))).slice(0, 5), [staff]);
   const activeStaffCount = staff.filter(isActiveStaff).length;
   const totalStaffCount = staff.length;
@@ -434,6 +439,13 @@ export function DashboardPage() {
         </div>
       </section>
     </div>
+    <section className="panel animate-in animate-delay-3">
+      <SectionHeading eyebrow="Jira / live work" title="Work Queue" action={<span className="muted-label">{jiraTickets.length} open items</span>} />
+      {jiraTicketsQuery.isError ? <ErrorState onRetry={() => void jiraTicketsQuery.refetch()} /> : jiraTicketsQuery.isLoading ? <LoadingRows count={4} /> : jiraTickets.length ? <div className="activity-table work-queue-table">
+        <div className="table-head"><span>Ticket</span><span>Summary</span><span>Status</span><span>Environment</span><span>Assignee</span></div>
+        {jiraTickets.map(ticket => <div className="table-row" key={ticket.id || ticket.key} data-testid={`row-work-queue-${ticket.key}`}><span className="font-mono">{ticket.key}</span><span><b>{ticket.summary}</b></span><span><StatusPill value={ticket.status} /></span><span className="font-mono">{ticket.environment}</span><span>{ticket.assignee}</span></div>)}
+      </div> : <EmptyState title="No open Jira work" detail="All synchronized Jira work is completed." icon={ListChecks} />}
+    </section>
     <section className="panel animate-in animate-delay-3">
       <SectionHeading eyebrow="Latest telemetry" title="Activity across operations" action={<span className="muted-label">Showing latest 5 updates</span>} />
       {staffQuery.isLoading ? <LoadingRows /> : recentStaff.length ? <div className="activity-table">

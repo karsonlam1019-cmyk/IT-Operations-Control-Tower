@@ -109,6 +109,131 @@ function toJiraEnvironment(value: unknown): JiraTicket["environment"] {
     : "SIT";
 }
 
+function jiraFieldValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.map(jiraFieldValue).filter(Boolean).join(", ");
+  }
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number") return String(value);
+  if (value && typeof value === "object") {
+    const field = value as Record<string, unknown>;
+    return String(
+      field.value ??
+        field.name ??
+        field.displayName ??
+        field.key ??
+        field.accountId ??
+        "",
+    ).trim();
+  }
+  return "";
+}
+
+type JiraField = { id: string; name?: string };
+
+async function getJiraFieldIds(
+  cfg: JiraConfig,
+  headers: Record<string, string>,
+): Promise<Map<string, string>> {
+  try {
+    const response = await fetchWithTimeout(`${cfg.baseUrl}/rest/api/3/field`, {
+      headers,
+    });
+    if (!response.ok) return new Map();
+    const fields = (await response.json()) as unknown;
+    if (!Array.isArray(fields)) return new Map();
+    return new Map(
+      fields
+        .filter((field): field is JiraField => Boolean(
+          field &&
+          typeof field === "object" &&
+          typeof (field as JiraField).id === "string" &&
+          typeof (field as JiraField).name === "string",
+        ))
+        .map((field) => [field.name!.trim().toLowerCase(), field.id]),
+    );
+  } catch {
+    return new Map();
+  }
+}
+
+async function listLiveJiraTickets(
+  cfg: JiraConfig,
+): Promise<JiraTicket[] | null> {
+  if (!cfg.baseUrl || !cfg.email || !cfg.apiToken || !cfg.projectKey) {
+    return null;
+  }
+
+  const headers = {
+    Authorization: `Basic ${Buffer.from(`${cfg.email}:${cfg.apiToken}`).toString("base64")}`,
+    Accept: "application/json",
+  };
+  const fieldIds = await getJiraFieldIds(cfg, headers);
+  const workField = fieldIds.get("work");
+  const statusTicketField = fieldIds.get("status_ticket");
+  const staffMemberField = fieldIds.get("staff member") ?? "customfield_10064";
+  const environmentField = fieldIds.get("environment") ?? "customfield_10067";
+  const requestedFields = [
+    "summary",
+    "status",
+    "assignee",
+    staffMemberField,
+    environmentField,
+    workField,
+    statusTicketField,
+  ].filter((field): field is string => Boolean(field));
+  const searchParams = new URLSearchParams({
+    jql: `project = "${cfg.projectKey}" ORDER BY updated DESC`,
+    fields: requestedFields.join(","),
+    maxResults: "100",
+  });
+
+  try {
+    const response = await fetchWithTimeout(
+      `${cfg.baseUrl}/rest/api/3/search/jql?${searchParams}`,
+      { headers },
+    );
+    if (!response.ok) return null;
+
+    const payload = (await response.json()) as { issues?: unknown };
+    if (!Array.isArray(payload.issues)) return [];
+
+    return payload.issues.flatMap((issue): JiraTicket[] => {
+      if (!issue || typeof issue !== "object") return [];
+      const rawIssue = issue as Record<string, unknown>;
+      const fields = rawIssue.fields;
+      if (!fields || typeof fields !== "object") return [];
+      const issueFields = fields as Record<string, unknown>;
+      const status = jiraFieldValue(
+        statusTicketField
+          ? issueFields[statusTicketField]
+          : undefined,
+      ) || jiraFieldValue(issueFields.status) || "Unknown";
+      if (status.trim().toLowerCase() === "completed") return [];
+
+      const key = jiraFieldValue(rawIssue.key);
+      const assignee = jiraFieldValue(issueFields[staffMemberField])
+        || jiraFieldValue(issueFields.assignee)
+        || "Unassigned";
+      const summary = jiraFieldValue(workField ? issueFields[workField] : undefined)
+        || jiraFieldValue(issueFields.summary)
+        || "Untitled work";
+      const environment = jiraFieldValue(issueFields[environmentField]);
+      return [{
+        id: jiraFieldValue(rawIssue.id) || key,
+        key,
+        summary,
+        status,
+        assignee,
+        environment: toJiraEnvironment(environment),
+        updatedAt: jiraFieldValue(issueFields.updated),
+      }];
+    });
+  } catch {
+    return null;
+  }
+}
+
 async function listSyncedShiftTickets(): Promise<JiraTicket[] | null> {
   const supabaseUrl = readEnv("SUPABASE_URL");
   const serviceRoleKey = readEnv("SUPABASE_SERVICE_ROLE_KEY");
@@ -137,7 +262,8 @@ async function listSyncedShiftTickets(): Promise<JiraTicket[] | null> {
     const rows = await response.json();
     if (!Array.isArray(rows)) return null;
 
-    return rows.map((row) => {
+    return rows
+      .map((row) => {
       const key = String(row.jira_issue_key ?? "");
       return {
         id: key,
@@ -148,19 +274,35 @@ async function listSyncedShiftTickets(): Promise<JiraTicket[] | null> {
         environment: toJiraEnvironment(row.environment),
         updatedAt: String(row.last_synced_at ?? row.jira_updated_at ?? ""),
       };
-    });
+      })
+      .filter((ticket) => ticket.status.trim().toLowerCase() !== "completed");
   } catch {
     return null;
   }
 }
 
 export async function listJiraTickets(): Promise<JiraTicketFeed> {
-  if (!isJiraConfigured()) {
+  const cfg = getJiraConfig();
+  if (!cfg.baseUrl || !cfg.email || !cfg.apiToken || !cfg.projectKey) {
     return {
       tickets: FALLBACK_TICKETS,
       source: "representative",
       degraded: true,
       message: "Jira is not configured",
+    };
+  }
+
+  const liveTickets = await listLiveJiraTickets({
+    baseUrl: cfg.baseUrl,
+    email: cfg.email,
+    apiToken: cfg.apiToken,
+    projectKey: cfg.projectKey,
+  });
+  if (liveTickets) {
+    return {
+      tickets: liveTickets,
+      source: "jira",
+      message: "Loaded live Jira work queue",
     };
   }
 
@@ -174,7 +316,9 @@ export async function listJiraTickets(): Promise<JiraTicketFeed> {
   }
 
   return {
-    tickets: FALLBACK_TICKETS,
+    tickets: FALLBACK_TICKETS.filter(
+      (ticket) => ticket.status.trim().toLowerCase() !== "completed",
+    ),
     source: "representative",
     degraded: true,
     message:

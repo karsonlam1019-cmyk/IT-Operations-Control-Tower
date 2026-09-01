@@ -6,7 +6,6 @@ import {
   ArrowUpRight,
   BarChart3,
   Bell,
-  BookOpen,
   Check,
   CheckCircle2,
   ChevronRight,
@@ -31,10 +30,8 @@ import {
   Play,
   RefreshCw,
   Search,
-  Send,
   ShieldCheck,
   SlidersHorizontal,
-  Sparkles,
   UserRound,
   UsersRound,
   WalletCards,
@@ -65,14 +62,12 @@ import {
   useListStaff,
   useMarkPaid,
   useResolveVariance,
-  useSearchCompliance,
   useSubmitInvoice,
   useSubmitProcurementReview,
   useToggleReleaseGate,
   useUpdateStaffStatus,
   type AuditLog,
   type BusinessUnitAllocation,
-  type ComplianceAnswer,
   type DashboardSummary,
   type FxRate,
   type PaymentSchedule,
@@ -124,7 +119,6 @@ const navItems: { label: string; href: string; icon: IconType; note?: string }[]
   { label: 'Procurement', href: '/procurement', icon: ClipboardCheck },
   { label: 'Vendor portal', href: '/vendor', icon: Globe2, note: 'external' },
   { label: 'Treasury', href: '/treasury', icon: WalletCards },
-  { label: 'Compliance', href: '/compliance', icon: BookOpen },
   { label: 'Administration', href: '/admin', icon: LockKeyhole },
 ];
 
@@ -135,7 +129,6 @@ const pageMeta: Record<string, { eyebrow: string; title: string; description: st
   '/procurement': { eyebrow: 'Commercial / workflow', title: 'Procurement control', description: 'Approvals, purchase orders, and exceptions in one accountable queue.' },
   '/vendor': { eyebrow: 'Supplier / self-service', title: 'Vendor portal', description: 'Purchase orders, milestone deliveries, and invoice submissions for external vendors.' },
   '/treasury': { eyebrow: 'Finance / allocation', title: 'Treasury overview', description: 'Payment velocity, business-unit allocation, and foreign exchange exposure.' },
-  '/compliance': { eyebrow: 'Risk / guidance', title: 'Compliance assistant', description: 'Ask a policy question. Get an answer with a source you can inspect.' },
   '/admin': { eyebrow: 'Governance / access', title: 'Administration', description: 'Access posture and an immutable trail of operational decisions.' },
 };
 
@@ -241,46 +234,6 @@ function SectionHeading({ eyebrow, title, action }: { eyebrow?: string; title: s
   </div>;
 }
 
-function GlobalSearch() {
-  const [query, setQuery] = useState('');
-  const [, setLocation] = useLocation();
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        inputRef.current?.focus();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (query.trim()) {
-      setLocation(`/compliance?q=${encodeURIComponent(query.trim())}`);
-      setQuery('');
-      inputRef.current?.blur();
-    }
-  };
-
-  return (
-    <form className="deepseek-search" onSubmit={handleSearch}>
-      <Search size={14} />
-      <input 
-        ref={inputRef}
-        value={query} 
-        onChange={e => setQuery(e.target.value)} 
-        placeholder="DeepSeek AI search..." 
-        data-testid="input-global-search"
-      />
-      <kbd>⌘K</kbd>
-    </form>
-  );
-}
-
 function DeputyToggle() {
   const [active, setActive] = useState(false);
   return (
@@ -369,9 +322,6 @@ function Shell({ children }: { children: ReactNode }) {
         <div className="topbar-left">
           <button className="mobile-menu" onClick={() => setMobileOpen(true)} data-testid="button-open-menu"><Menu size={20} /></button>
           <span className="breadcrumb">Orbital <ChevronRight size={13} /> {meta.eyebrow.split(' / ')[0]}</span>
-        </div>
-        <div className="topbar-center">
-          <GlobalSearch />
         </div>
         <div className="topbar-actions">
           <DeputyToggle />
@@ -580,45 +530,6 @@ function TreasuryPage() {
   </> : <EmptyState title="No treasury data" detail="Treasury analytics will appear when the reporting feed is available." icon={WalletCards} />}</div>;
 }
 
-function CitationCard({ citation }: { citation: ComplianceAnswer['citations'][number] }) {
-  return <div className="citation-card" data-testid={`citation-${citation.page}-${citation.section}`}><div className="citation-meta"><FileCheck2 size={14} /><span>{citation.document}</span><span>§ {citation.section}</span><span>p. {citation.page}</span></div><p>“{citation.excerpt}”</p></div>;
-}
-
-function CompliancePage() {
-  const searchString = useSearch();
-  const searchParams = new URLSearchParams(searchString);
-  const initialQuery = searchParams.get('q') || '';
-  const [queryText, setQueryText] = useState(initialQuery);
-  const search = useSearchCompliance();
-  const answer = search.data as ComplianceAnswer | undefined;
-  
-  const hasRunInitial = useRef(false);
-  
-  const ask = useCallback((q: string) => { 
-    if (!q.trim()) return; 
-    search.mutate({ data: { query: q.trim() } }, { 
-      onSuccess: () => toast.success('Guidance retrieved'), 
-      onError: () => toast.error('Could not search policy guidance') 
-    }); 
-  }, [search.mutate]);
-
-  useEffect(() => {
-    if (initialQuery && !hasRunInitial.current) {
-      hasRunInitial.current = true;
-      ask(initialQuery);
-    }
-  }, [initialQuery, ask]);
-
-  const handleAsk = () => ask(queryText);
-
-  return <div className="page-stack compliance-page"><section className="compliance-hero panel signal-grid"><div className="compliance-orb"><Sparkles size={20} /></div><div><span className="eyebrow">Verified policy search</span><h2>What decision are you making?</h2><p>Ask in plain language. Orbital searches internal policy and returns cited guidance for review.</p></div><div className="compliance-search"><Search size={17} /><input value={queryText} onChange={e => setQueryText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleAsk(); }} placeholder="e.g. Can a vendor access production data during UAT?" data-testid="input-compliance-query" /><button className="button button-primary" onClick={handleAsk} disabled={search.isPending || !queryText.trim()} data-testid="button-search-compliance">{search.isPending ? 'Searching' : 'Search guidance'}<Send size={14} /></button></div></section>
-    {search.isError && <ErrorState onRetry={handleAsk} />}
-    {!answer && !search.isPending && <section className="compliance-empty"><BookOpen size={22} /><strong>Answers carry their evidence</strong><p>Start with a policy question. Your results will show confidence and the exact document excerpt behind the answer.</p><div className="question-chips"><button onClick={() => setQueryText('What are the approval controls for production access?')} data-testid="button-suggest-access">Production access controls</button><button onClick={() => setQueryText('When is a vendor security review required?')} data-testid="button-suggest-vendor">Vendor security review</button><button onClick={() => setQueryText('What evidence is needed for release handover?')} data-testid="button-suggest-release">Release evidence</button></div></section>}
-    {search.isPending && <section className="panel"><LoadingRows count={3} /></section>}
-    {answer && <div className="answer-grid"><section className="panel answer-card"><div className="answer-top"><span className="eyebrow">Policy answer</span><span className="confidence"><span style={{ width: `${answer.confidence * 100}%` }} /> {Math.round(answer.confidence * 100)}% confidence</span></div><p className="answer-copy">{answer.answer}</p><div className="answer-foot"><ShieldCheck size={15} /> Grounded in {answer.citations.length} cited source{answer.citations.length === 1 ? '' : 's'} <button className="button button-quiet" onClick={() => setQueryText('')} data-testid="button-clear-answer">Clear</button></div></section><section className="panel"><SectionHeading eyebrow="Evidence trail" title="Citations" /><div className="citation-list">{answer.citations.length ? answer.citations.map((citation, i) => <CitationCard citation={citation} key={`${citation.document}-${i}`} />) : <EmptyState title="No citations returned" detail="Ask a narrower policy question for source evidence." icon={FileCheck2} />}</div></section></div>}
-  </div>;
-}
-
 function AdminPage() {
   const query = useListAuditLogs({ query: { queryKey: getListAuditLogsQueryKey(), refetchInterval: 30000 } });
   const [search, setSearch] = useState('');
@@ -641,7 +552,6 @@ function Router() {
     <Route path="/procurement" component={ProcurementWorkflowPage} />
     <Route path="/vendor" component={VendorPage} />
     <Route path="/treasury" component={TreasuryPage} />
-    <Route path="/compliance" component={CompliancePage} />
     <Route path="/admin" component={AdminPage} />
     <Route><NotFoundPage /></Route>
   </Switch></RoutedErrorBoundary></Shell>;

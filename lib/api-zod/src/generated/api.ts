@@ -593,28 +593,6 @@ export const GetTreasuryAnalyticsResponse = zod.object({
 
 
 /**
- * @summary Search verified compliance guidance
- */
-
-
-
-export const SearchComplianceBody = zod.object({
-  "query": zod.string().min(1)
-})
-
-export const SearchComplianceResponse = zod.object({
-  "answer": zod.string(),
-  "confidence": zod.number(),
-  "citations": zod.array(zod.object({
-  "document": zod.string(),
-  "section": zod.string(),
-  "page": zod.number(),
-  "excerpt": zod.string()
-}))
-})
-
-
-/**
  * @summary List immutable audit log entries
  */
 export const ListAuditLogsResponseItem = zod.object({

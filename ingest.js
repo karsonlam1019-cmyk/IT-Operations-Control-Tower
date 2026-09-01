@@ -17,7 +17,7 @@ export const CHUNK_TOKEN_LIMIT = 500;
 export const CHUNK_TOKEN_OVERLAP = 50;
 export const EMBEDDING_BATCH_SIZE = 96;
 export const EMBEDDING_MODEL = "embed-v4.0";
-const TABLE_NAME = "knowledge_base_vectors";
+const TABLE_NAME = "policy_chunks";
 const MAX_RETRIES = 3;
 
 const REQUIRED_ENVIRONMENT = [
@@ -315,7 +315,7 @@ async function generateEmbeddings(chunks, apiKey) {
       ? embeddings[invalid].length
       : 0;
     throw new IngestionError(
-      `Cohere returned embedding dimension ${actual}, but knowledge_base_vectors.embedding requires ${EMBEDDING_DIMENSIONS}. ` +
+      `Cohere returned embedding dimension ${actual}, but policy_chunks.embedding requires ${EMBEDDING_DIMENSIONS}. ` +
         "Stop without writing rows and use a Cohere model/output dimension compatible with vector(1024).",
     );
   }
@@ -329,10 +329,9 @@ function vectorLiteral(vector) {
 
 function rowsForDocument(document, embeddings) {
   return document.chunks.map((chunk, index) => ({
-    document_title: document.title,
-    language: document.language,
-    section_reference: chunk.sectionReference,
+    document_name: `${document.title}#${String(index).padStart(4, "0")}`,
     page_number: chunk.pageNumber,
+    paragraph_index: index,
     content: chunk.content,
     embedding: vectorLiteral(embeddings[index]),
   }));
@@ -355,7 +354,9 @@ async function writeDocuments(documents, embeddingsByDocument, configuration) {
     const { error: deleteError } = await supabase
       .from(TABLE_NAME)
       .delete()
-      .eq("document_title", document.title);
+      .or(
+        `document_name.eq.${document.title},document_name.like.${document.title}#%`,
+      );
     if (deleteError) {
       throw new IngestionError(
         `Could not replace existing rows for ${document.title}: ${safeErrorMessage(

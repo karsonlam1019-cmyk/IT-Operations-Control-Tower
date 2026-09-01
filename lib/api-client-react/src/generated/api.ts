@@ -23,8 +23,6 @@ import type {
   AdvanceProcurementInput,
   AuditLog,
   BudgetSummaryRow,
-  ComplianceAnswer,
-  ComplianceSearchInput,
   CreatePaymentInput,
   CreateProcurementInput,
   DashboardSummary,
@@ -1865,77 +1863,6 @@ export function useGetTreasuryAnalytics<TData = Awaited<ReturnType<typeof getTre
 
 
 
-
-export const getSearchComplianceUrl = () => {
-
-
-
-
-  return `/api/compliance/search`
-}
-
-/**
- * @summary Search verified compliance guidance
- */
-export const searchCompliance = async (complianceSearchInput: ComplianceSearchInput, options?: Parameters<typeof customFetch>[1]): Promise<ComplianceAnswer> => {
-
-  return customFetch<ComplianceAnswer>(getSearchComplianceUrl(),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(complianceSearchInput)
-  }
-);}
-
-
-
-
-
-export const getSearchComplianceMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof searchCompliance>>, TError,{data: BodyType<ComplianceSearchInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof searchCompliance>>, TError,{data: BodyType<ComplianceSearchInput>}, TContext> => {
-
-const mutationKey = ['searchCompliance'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof searchCompliance>>, {data: BodyType<ComplianceSearchInput>}> = (props) => {
-          const {data} = props ?? {};
-
-          return  searchCompliance(data,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type SearchComplianceMutationResult = NonNullable<Awaited<ReturnType<typeof searchCompliance>>>
-    export type SearchComplianceMutationBody = BodyType<ComplianceSearchInput>
-    export type SearchComplianceMutationError = ErrorType<unknown>
-
-    /**
- * @summary Search verified compliance guidance
- */
-export const useSearchCompliance = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof searchCompliance>>, TError,{data: BodyType<ComplianceSearchInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof searchCompliance>>,
-        TError,
-        {data: BodyType<ComplianceSearchInput>},
-        TContext
-      > => {
-      return useMutation(getSearchComplianceMutationOptions(options));
-    }
 
 export const getListAuditLogsUrl = () => {
 

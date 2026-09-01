@@ -37,8 +37,6 @@ import {
   ResolveVarianceBody,
   ResolveVarianceParams,
   ResolveVarianceResponse,
-  SearchComplianceBody,
-  SearchComplianceResponse,
   SubmitInvoiceBody,
   SubmitInvoiceParams,
   SubmitInvoiceResponse,
@@ -54,7 +52,6 @@ import {
 } from "@workspace/api-zod";
 // @ts-ignore The standalone JavaScript service is shared with the sync runner.
 import { syncJiraShifts } from "../../../../src/services/jiraSync.js";
-import { deepseek } from "../integrations/deepseek";
 import {
   approveProcurement,
   advanceProcurementStatus,
@@ -279,16 +276,6 @@ router.get("/treasury", (_req, res) => {
     totalYtd: 126800000,
     varianceRate: 1.7,
   }));
-});
-
-router.post("/compliance/search", async (req, res) => {
-  const body = SearchComplianceBody.safeParse(req.body);
-  if (!body.success) {
-    res.status(400).json({ error: "Enter a compliance question" });
-    return;
-  }
-  const result = await deepseek.search(body.data.query);
-  res.json(SearchComplianceResponse.parse(result));
 });
 
 router.get("/audit-logs", (_req, res) => {

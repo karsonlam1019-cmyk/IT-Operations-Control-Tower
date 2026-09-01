@@ -88,24 +88,6 @@ export interface TreasuryAnalytics {
   varianceRate: number;
 }
 
-export interface ComplianceSearchInput {
-  /** @minLength 1 */
-  query: string;
-}
-
-export interface Citation {
-  document: string;
-  section: string;
-  page: number;
-  excerpt: string;
-}
-
-export interface ComplianceAnswer {
-  answer: string;
-  confidence: number;
-  citations: Citation[];
-}
-
 export interface AuditLog {
   id: string;
   actor: string;

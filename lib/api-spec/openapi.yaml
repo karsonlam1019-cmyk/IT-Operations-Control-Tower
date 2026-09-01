@@ -526,24 +526,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TreasuryAnalytics"
-  /compliance/search:
-    post:
-      operationId: searchCompliance
-      tags: [operations]
-      summary: Search verified compliance guidance
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ComplianceSearchInput"
-      responses:
-        "200":
-          description: Compliance answer with paragraph citations
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ComplianceAnswer"
   /audit-logs:
     get:
       operationId: listAuditLogs
@@ -664,29 +646,6 @@ components:
         currency: { type: string }
         rate: { type: number }
         delta: { type: number }
-    ComplianceSearchInput:
-      type: object
-      required: [query]
-      properties:
-        query: { type: string, minLength: 1 }
-    ComplianceAnswer:
-      type: object
-      required: [answer, confidence, citations]
-      properties:
-        answer: { type: string }
-        confidence: { type: number }
-        citations:
-          type: array
-          items:
-            $ref: "#/components/schemas/Citation"
-    Citation:
-      type: object
-      required: [document, section, page, excerpt]
-      properties:
-        document: { type: string }
-        section: { type: string }
-        page: { type: number }
-        excerpt: { type: string }
     AuditLog:
       type: object
       required: [id, actor, action, target, timestamp, region, deputy]

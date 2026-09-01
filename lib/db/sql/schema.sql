@@ -243,17 +243,16 @@ CREATE TABLE three_way_matches (
 );
 
 -- ---------------------------------------------------------------------
--- Knowledge Base Vectors for RAG (EN + CN)
+-- Policy chunks
 -- ---------------------------------------------------------------------
-CREATE TABLE knowledge_base_vectors (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    document_title TEXT NOT NULL,
-    language VARCHAR(2) NOT NULL,
-    section_reference TEXT,
+CREATE TABLE policy_chunks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    document_name TEXT NOT NULL,
     page_number INT,
+    paragraph_index INT NOT NULL,
     content TEXT NOT NULL,
     embedding vector(1024),
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMP DEFAULT NOW()
 );
 
 -- ---------------------------------------------------------------------
@@ -303,7 +302,6 @@ ALTER TABLE cost_allocations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vendors ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE fx_rates ENABLE ROW LEVEL SECURITY;
-ALTER TABLE knowledge_base_vectors ENABLE ROW LEVEL SECURITY;
 ALTER TABLE teams ENABLE ROW LEVEL SECURITY;
 ALTER TABLE budget_lines ENABLE ROW LEVEL SECURITY;
 ALTER TABLE three_way_matches ENABLE ROW LEVEL SECURITY;
@@ -426,11 +424,6 @@ CREATE POLICY threeway_update_admin ON three_way_matches FOR UPDATE USING (
   is_admin_user() OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'FINANCE_AUDITOR')
 );
 
--- ============ knowledge_base_vectors ============
--- Vector search runs via SECURITY DEFINER function; direct select for admins
-CREATE POLICY kb_select ON knowledge_base_vectors FOR SELECT USING (true);
-CREATE POLICY kb_write_admin ON knowledge_base_vectors FOR INSERT WITH CHECK (is_admin_user());
-
 -- ============ audit_logs (immutable — INSERT only, guardrail A/spec) ============
 CREATE POLICY audit_insert_only ON audit_logs FOR INSERT WITH CHECK (true);
 CREATE POLICY audit_select_admin ON audit_logs FOR SELECT USING (
@@ -441,36 +434,6 @@ CREATE POLICY audit_select_admin ON audit_logs FOR SELECT USING (
 -- System inserts on capture; admins (IT/Finance) read + manage lifecycle.
 CREATE POLICY dlq_select_admin ON dlq_entries FOR SELECT USING (is_admin_user());
 CREATE POLICY dlq_update_admin ON dlq_entries FOR UPDATE USING (is_admin_user());
-
--- Stored Procedure for Vector Match (spec §9). SECURITY DEFINER so app
--- can run similarity search through PostgREST/anon role (guardrail: RLS bypass).
-CREATE OR REPLACE FUNCTION match_knowledge_base (
-  query_embedding vector(1024),
-  match_threshold float,
-  match_count int
-)
-RETURNS TABLE (
-  id uuid,
-  document_title text,
-  section_reference text,
-  page_number int,
-  content text,
-  similarity float
-)
-LANGUAGE plpgsql
-SECURITY DEFINER SET search_path = public
-AS $$
-BEGIN
-  RETURN QUERY
-    SELECT kb.id, kb.document_title, kb.section_reference, kb.page_number,
-           kb.content, 1 - (kb.embedding <=> query_embedding) AS similarity
-    FROM knowledge_base_vectors kb
-    WHERE 1 - (kb.embedding <=> query_embedding) > match_threshold
-    ORDER BY kb.embedding <=> query_embedding
-    LIMIT match_count;
-END;
-$$;
-GRANT EXECUTE ON FUNCTION match_knowledge_base(vector, float, int) TO anon, authenticated, service_role;
 
 -- =====================================================================
 -- GUARDRAIL D: Deputy auto-activation on SUPER_ADMIN leave

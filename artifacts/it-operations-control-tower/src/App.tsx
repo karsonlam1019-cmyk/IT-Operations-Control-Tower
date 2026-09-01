@@ -328,6 +328,11 @@ function Shell({ children }: { children: ReactNode }) {
   const [location] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const meta = pageMeta[location] ?? pageMeta['/'];
+  const staffQuery = useListStaff({ query: { queryKey: getListStaffQueryKey(), refetchInterval: 15000 } });
+  const activeStaffCount = (staffQuery.data as StaffMember[] | undefined)?.filter(member =>
+    member.status.trim().toLowerCase() === 'active' && !member.isStale
+  ).length;
+  const staffCountLabel = staffQuery.isLoading ? '…' : staffQuery.isError ? '—' : String(activeStaffCount ?? 0);
   return <div className="app-shell min-h-[100dvh]">
     <aside className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`}>
       <div className="brand">
@@ -345,7 +350,7 @@ function Shell({ children }: { children: ReactNode }) {
           className={`nav-link ${location === href ? 'nav-link-active' : ''}`}
           data-testid={`link-${label.toLowerCase().replace(/\s+/g, '-')}`}
         >
-          <Icon size={17} strokeWidth={1.8} /><span>{label}</span>{note && <em>{note}</em>}
+          <Icon size={17} strokeWidth={1.8} /><span>{label}</span>{note && <em>{label === 'Staff operations' ? staffCountLabel : note}</em>}
         </Link>)}
       </nav>
       <div className="sidebar-lower">
@@ -423,7 +428,7 @@ function DashboardPage() {
       <SectionHeading eyebrow="Latest telemetry" title="Activity across operations" action={<span className="muted-label">Showing latest 5 updates</span>} />
       {staffQuery.isLoading ? <LoadingRows /> : recentStaff.length ? <div className="activity-table">
         <div className="table-head"><span>Person</span><span>Workstream</span><span>Environment</span><span>State</span><span>Updated</span></div>
-        {recentStaff.map(member => <div className="table-row" key={member.id} data-testid={`row-activity-${member.id}`}><span className="person-cell"><span className="avatar">{member.initials}</span><span><b>{member.name}</b><small>{member.role}</small></span></span><span>{member.team}<small>{member.region}</small></span><span className="font-mono">{member.environment || '—'}</span><span><StatusPill value={member.status} /></span><span className="font-mono muted-label">{formatTime(member.updatedAt)}</span></div>)}
+         {recentStaff.map(member => <div className="table-row" key={member.id} data-testid={`row-activity-${member.id}`}><span className="person-cell"><span className="avatar">{member.initials}</span><span><b>{member.name}</b>{member.role && <small>{member.role}</small>}</span></span><span>{member.team}<small>{member.region}</small></span><span className="font-mono">{member.environment || '—'}</span><span><StatusPill value={member.status} /></span><span className="font-mono muted-label">{formatTime(member.updatedAt)}</span></div>)}
       </div> : <EmptyState title="No activity yet" detail="The staff feed has not returned any monitored updates." />}
     </section>
   </div>;
@@ -471,7 +476,7 @@ export function StaffPage() {
        {syncFailure && <div className="error-state" role="alert" data-testid="sync-error"><AlertCircle size={18} /><div><strong>Jira sync unsuccessful</strong><p>{syncFailure}</p></div><button className="button button-quiet" onClick={runJiraSync} disabled={syncJira.isPending} data-testid="button-retry-sync"><RefreshCw size={14} /> Retry</button></div>}
       {query.isError ? <ErrorState onRetry={() => void query.refetch()} /> : query.isLoading ? <LoadingRows count={6} /> : !filtered.length ? <EmptyState title={staff.length ? 'No matching staff' : 'No staff feed available'} detail={staff.length ? 'Adjust the search or status filter.' : 'Once monitored staff are connected, their shift signal will appear here.'} icon={UsersRound} /> : <div className="staff-table">
         <div className="table-head staff-head"><span>Staff member</span><span>Team / region</span><span>Ticket</span><span>Environment</span><span>Signal</span><span>Action</span></div>
-         {filtered.map(member => { const isJiraShift = member.id.startsWith('SHIFT-'); return <div className="table-row staff-row" key={member.id} data-testid={`row-staff-${member.id}`}><span className="person-cell"><span className={`avatar ${member.isStale ? 'avatar-stale' : ''}`}>{member.initials}</span><span><b>{member.name}</b><small>{member.role}</small></span></span><span><b>{member.team}</b><small>{member.region}</small></span><span className="font-mono">{member.ticket || 'No ticket'}</span><span className="font-mono">{member.environment || '—'}</span><span><StatusPill value={member.isStale ? 'Stale' : member.status} testId={`status-staff-${member.id}`} /><small className="table-subtext">Updated {formatTime(member.updatedAt)}</small></span><button className="row-action" onClick={() => changeStatus(member)} disabled={update.isPending || isJiraShift} data-testid={`button-toggle-status-${member.id}`}>{isJiraShift ? <Check size={15} /> : member.status.toLowerCase().includes('active') ? <PauseCircle size={15} /> : <Play size={15} />}{isJiraShift ? 'Synced from Jira' : member.status.toLowerCase().includes('active') ? 'Set away' : 'Set active'}</button></div>; })}
+          {filtered.map(member => { const isJiraShift = member.id.startsWith('SHIFT-'); return <div className="table-row staff-row" key={member.id} data-testid={`row-staff-${member.id}`}><span className="person-cell"><span className={`avatar ${member.isStale ? 'avatar-stale' : ''}`}>{member.initials}</span><span><b>{member.name}</b>{member.role && <small>{member.role}</small>}</span></span><span><b>{member.team}</b><small>{member.region}</small></span><span className="font-mono">{member.ticket || 'No ticket'}</span><span className="font-mono">{member.environment || '—'}</span><span><StatusPill value={member.isStale ? 'Stale' : member.status} testId={`status-staff-${member.id}`} /><small className="table-subtext">Updated {formatTime(member.updatedAt)}</small></span><button className="row-action" onClick={() => changeStatus(member)} disabled={update.isPending || isJiraShift} data-testid={`button-toggle-status-${member.id}`}>{isJiraShift ? <Check size={15} /> : member.status.toLowerCase().includes('active') ? <PauseCircle size={15} /> : <Play size={15} />}{isJiraShift ? 'Synced from Jira' : member.status.toLowerCase().includes('active') ? 'Set away' : 'Set active'}</button></div>; })}
       </div>}
     </section>
   </div>;

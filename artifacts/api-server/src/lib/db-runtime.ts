@@ -148,7 +148,7 @@ async function loadSyncedShiftStaff(): Promise<RuntimeStaffMember[] | null> {
           id: key,
           name,
           initials: initials || "—",
-          role: "Jira shift",
+          role: "",
           team: str(row.team) || "Jira / Unassigned",
           region: str(row.region) || "—",
           status: str(row.signal) || "Unknown",

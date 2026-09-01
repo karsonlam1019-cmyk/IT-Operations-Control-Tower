@@ -54,12 +54,19 @@ export async function syncJiraShifts({
 
   console.log("[jira-sync] Fetching Jira issues from project SHIFT...");
 
+  const jiraOptionValue = (value) => {
+    if (typeof value === "string") return value.trim();
+    if (value && typeof value === "object") {
+      return String(value.value || value.name || value.displayName || "").trim();
+    }
+    return "";
+  };
+
   // Request the fields we need (standard + custom fields)
-  // Note: Custom fields usually have IDs like customfield_10001.
-  // For now we request common fields. We will refine the field IDs later if needed.
   const searchParams = new URLSearchParams({
     jql: 'project = "SHIFT" ORDER BY updated DESC',
-    fields: "summary,assignee,status,updated,duedate",
+    fields:
+      "summary,status,updated,duedate,customfield_10064,customfield_10065,customfield_10066,customfield_10067",
     maxResults: "100",
   });
 
@@ -101,10 +108,10 @@ export async function syncJiraShifts({
 
     return {
       jira_issue_key: issue.key,                          // e.g. SHIFT-123
-      staff_member: fields.assignee?.displayName || fields.assignee?.emailAddress || "Unassigned",
-      team: null,                                         // will map custom field later
-      region: null,                                       // will map custom field later
-      environment: null,                                  // will map custom field later
+      staff_member: jiraOptionValue(fields.customfield_10064) || "Unassigned",
+      team: jiraOptionValue(fields.customfield_10065) || null,
+      region: jiraOptionValue(fields.customfield_10066) || null,
+      environment: jiraOptionValue(fields.customfield_10067) || null,
       signal: fields.status?.name || "Unknown",           // Status → Signal
       action: null,                                       // will map custom field later
       due_date: fields.duedate || null,

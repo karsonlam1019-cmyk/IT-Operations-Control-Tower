@@ -64,7 +64,10 @@ test("fetches SHIFT issues and upserts the mapped shifts", async () => {
           id: "10001",
           key: "SHIFT-10001",
           fields: {
-            assignee: { accountId: "staff-1", displayName: "Staff One" },
+            customfield_10064: { id: "10001", value: "Staff One" },
+            customfield_10065: { id: "10002", value: "Platform Reliability" },
+            customfield_10066: { id: "10003", value: "HK" },
+            customfield_10067: { id: "10004", value: "PROD" },
             status: { name: "Active" },
             updated: "2026-08-30T12:00:00.000+0000",
             duedate: "2026-09-05",
@@ -113,16 +116,16 @@ test("fetches SHIFT issues and upserts the mapped shifts", async () => {
   );
   assert.equal(
     requests[0].url.searchParams.get("fields"),
-    "summary,assignee,status,updated,duedate",
+    "summary,status,updated,duedate,customfield_10064,customfield_10065,customfield_10066,customfield_10067",
   );
   assert.deepEqual(upsertCall, {
     rows: [
       {
         jira_issue_key: "SHIFT-10001",
         staff_member: "Staff One",
-        team: null,
-        region: null,
-        environment: null,
+        team: "Platform Reliability",
+        region: "HK",
+        environment: "PROD",
         signal: "Active",
         action: null,
         due_date: "2026-09-05",

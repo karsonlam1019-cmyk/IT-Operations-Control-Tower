@@ -98,6 +98,62 @@ const FALLBACK_TICKETS: JiraTicket[] = [
   { id: "10005", key: "DB-3125", summary: "Postgres 16 upgrade", status: "Deployment", assignee: "Li Wei", environment: "PROD", updatedAt: "28 min ago" },
 ];
 
+function normalizeSupabaseUrl(value: string): string {
+  return value.replace(/\/+$/, "").replace(/\/rest\/v1$/i, "");
+}
+
+function toJiraEnvironment(value: unknown): JiraTicket["environment"] {
+  const environment = String(value ?? "").toUpperCase();
+  return ["SIT", "UAT", "STAGING", "PROD"].includes(environment)
+    ? (environment as JiraTicket["environment"])
+    : "SIT";
+}
+
+async function listSyncedShiftTickets(): Promise<JiraTicket[] | null> {
+  const supabaseUrl = readEnv("SUPABASE_URL");
+  const serviceRoleKey = readEnv("SUPABASE_SERVICE_ROLE_KEY");
+  if (!supabaseUrl || !serviceRoleKey) return null;
+
+  const params = new URLSearchParams({
+    select:
+      "jira_issue_key,staff_member,signal,environment,jira_updated_at,last_synced_at",
+    order: "last_synced_at.desc",
+    limit: "100",
+  });
+
+  try {
+    const response = await fetchWithTimeout(
+      `${normalizeSupabaseUrl(supabaseUrl)}/rest/v1/shifts?${params}`,
+      {
+        headers: {
+          apikey: serviceRoleKey,
+          Authorization: `Bearer ${serviceRoleKey}`,
+          Accept: "application/json",
+        },
+      },
+    );
+    if (!response.ok) return null;
+
+    const rows = await response.json();
+    if (!Array.isArray(rows)) return null;
+
+    return rows.map((row) => {
+      const key = String(row.jira_issue_key ?? "");
+      return {
+        id: key,
+        key,
+        summary: "Synchronized Jira shift",
+        status: String(row.signal ?? "Unknown"),
+        assignee: String(row.staff_member ?? "Unassigned"),
+        environment: toJiraEnvironment(row.environment),
+        updatedAt: String(row.last_synced_at ?? row.jira_updated_at ?? ""),
+      };
+    });
+  } catch {
+    return null;
+  }
+}
+
 export async function listJiraTickets(): Promise<JiraTicketFeed> {
   if (!isJiraConfigured()) {
     return {
@@ -107,6 +163,16 @@ export async function listJiraTickets(): Promise<JiraTicketFeed> {
       message: "Jira is not configured",
     };
   }
+
+  const syncedTickets = await listSyncedShiftTickets();
+  if (syncedTickets) {
+    return {
+      tickets: syncedTickets,
+      source: "jira",
+      message: "Loaded synchronized Jira shifts from Supabase",
+    };
+  }
+
   return {
     tickets: FALLBACK_TICKETS,
     source: "representative",

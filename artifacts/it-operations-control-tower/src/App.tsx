@@ -87,6 +87,7 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import {
   useIntegrationHealth,
   useJiraTickets,
+  jiraTicketsKey,
   useVendorSubmissions,
   type IntegrationStatus,
   type JiraTicket,
@@ -477,6 +478,7 @@ export function StaffPage() {
       onSuccess: (result) => {
         setSyncFailure(null);
         void client.invalidateQueries({ queryKey: getListStaffQueryKey() });
+        void client.invalidateQueries({ queryKey: jiraTicketsKey });
         toast.success(`Jira sync complete: ${result.count} shift${result.count === 1 ? '' : 's'} processed`);
       },
       onError: (error) => {
@@ -488,6 +490,7 @@ export function StaffPage() {
   };
   return <div className="page-stack">
     <div className="toolbar panel"><div className="search-field"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search people, teams, regions" data-testid="input-search-staff" /></div><div className="filter-group"><Filter size={14} /><select value={status} onChange={e => setStatus(e.target.value)} data-testid="select-staff-status">{statuses.map(value => <option value={value} key={value}>{value}</option>)}</select></div><span className="toolbar-count font-mono">{filtered.length} / {staff.length} visible</span></div>
+     <JiraQueueSection />
     <section className="panel">
       <SectionHeading eyebrow="Coverage board" title="Shift signal" action={<div className="section-heading-actions"><div className="legend"><span><i className="legend-dot live" /> Live</span><span><i className="legend-dot stale" /> Stale</span></div><button className="button button-outline" onClick={runJiraSync} disabled={syncJira.isPending} data-testid="button-sync-jira"><RefreshCw size={14} className={syncJira.isPending ? 'animate-spin' : ''} />{syncJira.isPending ? 'Syncing Jira…' : 'Sync Jira'}</button></div>} />
        {syncFailure && <div className="error-state" role="alert" data-testid="sync-error"><AlertCircle size={18} /><div><strong>Jira sync unsuccessful</strong><p>{syncFailure}</p></div><button className="button button-quiet" onClick={runJiraSync} disabled={syncJira.isPending} data-testid="button-retry-sync"><RefreshCw size={14} /> Retry</button></div>}

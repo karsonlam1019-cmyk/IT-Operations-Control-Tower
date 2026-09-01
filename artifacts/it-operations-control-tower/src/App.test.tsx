@@ -180,7 +180,7 @@ describe("StaffPage Jira sync", () => {
     await waitFor(() => expect(syncCalls).toBe(2));
   });
 
-  it("derives System pulse from the live Shift signal staff feed", async () => {
+  it("derives Active Workforce Ratio from the live Shift signal staff feed", async () => {
     const activeStaff = { ...refreshedStaff, id: "s-004", name: "Active Operator" };
     let staff = [
       refreshedStaff,
@@ -240,7 +240,7 @@ describe("StaffPage Jira sync", () => {
     );
 
     await waitFor(() => expect(screen.getByTestId("value-system-pulse")).toHaveTextContent("50%"));
-    expect(screen.getByText("2 inactive / 4 staff members excluding 1 out of office")).toBeInTheDocument();
+    expect(screen.getByText("2 (In-Work) of 4 staff member in office")).toBeInTheDocument();
 
     staff = staff.map(member => member.status === "Out of Office"
       ? member

@@ -5,7 +5,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { StaffPage } from "./App";
+import { getListStaffQueryKey } from "@workspace/api-client-react";
+import { DashboardPage, StaffPage } from "./App";
 
 const initialStaff = {
   id: "s-001",
@@ -139,6 +140,59 @@ describe("StaffPage Jira sync", () => {
       intervalCallbacks[0]?.();
     });
     await waitFor(() => expect(syncCalls).toBe(2));
+  });
+
+  it("derives System pulse from the live Shift signal staff feed", async () => {
+    const activeStaff = { ...refreshedStaff, id: "s-004", name: "Active Operator" };
+    let staff = [
+      refreshedStaff,
+      { ...initialStaff, id: "s-002", name: "Away Operator", isStale: false },
+      { ...initialStaff, id: "s-003", name: "Stale Operator", status: "Active" },
+      activeStaff,
+    ];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/staff") {
+        return jsonResponse(staff);
+      }
+      if (path === "/api/dashboard/summary") {
+        return jsonResponse({
+          systemPulse: 99.94,
+          staleStaff: 1,
+          pendingApprovals: 0,
+          releaseReadiness: 100,
+          blockedVariances: 0,
+          lastSync: "2026-08-30T12:05:00.000Z",
+        });
+      }
+      if (path === "/api/health") {
+        return jsonResponse({ status: "ok" });
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <DashboardPage />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("value-system-pulse")).toHaveTextContent("50%"));
+    expect(screen.getByText("2 inactive / 4 total staff members")).toBeInTheDocument();
+
+    staff = staff.map(member => ({ ...member, status: "Active", isStale: false }));
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: getListStaffQueryKey() });
+    });
+
+    await waitFor(() => expect(screen.getByTestId("value-system-pulse")).toHaveTextContent("0%"));
   });
 
   it.each([

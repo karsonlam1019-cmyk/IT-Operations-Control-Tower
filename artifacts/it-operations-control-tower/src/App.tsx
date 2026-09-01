@@ -118,7 +118,7 @@ type IconType = typeof LayoutDashboard;
 
 const navItems: { label: string; href: string; icon: IconType; note?: string }[] = [
   { label: 'Command center', href: '/', icon: LayoutDashboard },
-  { label: 'Staff operations', href: '/staff', icon: UsersRound, note: '300' },
+  { label: 'Staff operations', href: '/staff', icon: UsersRound },
   { label: 'Release control', href: '/release', icon: PackageCheck },
   { label: 'Procurement', href: '/procurement', icon: ClipboardCheck },
   { label: 'Vendor portal', href: '/vendor', icon: Globe2, note: 'external' },
@@ -204,6 +204,10 @@ function statusTone(status = '') {
 
 function StatusPill({ value, testId }: { value: string; testId?: string }) {
   return <span className={`status-pill ${statusTone(value)}`} data-testid={testId}>{value || 'Unassigned'}</span>;
+}
+
+function isActiveStaff(member: StaffMember) {
+  return member.status.trim().toLowerCase() === 'active' && !member.isStale;
 }
 
 function LoadingRows({ count = 4 }: { count?: number }) {
@@ -329,10 +333,8 @@ function Shell({ children }: { children: ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const meta = pageMeta[location] ?? pageMeta['/'];
   const staffQuery = useListStaff({ query: { queryKey: getListStaffQueryKey(), refetchInterval: 15000 } });
-  const activeStaffCount = (staffQuery.data as StaffMember[] | undefined)?.filter(member =>
-    member.status.trim().toLowerCase() === 'active' && !member.isStale
-  ).length;
-  const staffCountLabel = staffQuery.isLoading ? '…' : staffQuery.isError ? '—' : String(activeStaffCount ?? 0);
+  const staff = (staffQuery.data as StaffMember[] | undefined) ?? [];
+  const staffCountLabel = staffQuery.isLoading ? '…' : staffQuery.isError ? '—' : String(staff.length);
   return <div className="app-shell min-h-[100dvh]">
     <aside className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`}>
       <div className="brand">
@@ -350,7 +352,7 @@ function Shell({ children }: { children: ReactNode }) {
           className={`nav-link ${location === href ? 'nav-link-active' : ''}`}
           data-testid={`link-${label.toLowerCase().replace(/\s+/g, '-')}`}
         >
-          <Icon size={17} strokeWidth={1.8} /><span>{label}</span>{note && <em>{label === 'Staff operations' ? staffCountLabel : note}</em>}
+          <Icon size={17} strokeWidth={1.8} /><span>{label}</span>{(note || label === 'Staff operations') && <em>{label === 'Staff operations' ? staffCountLabel : note}</em>}
         </Link>)}
       </nav>
       <div className="sidebar-lower">
@@ -399,11 +401,12 @@ function DashboardPage() {
   const summary = summaryQuery.data as DashboardSummary | undefined;
   const staff = (staffQuery.data as StaffMember[] | undefined) ?? [];
   const recentStaff = useMemo(() => staff.slice().sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))).slice(0, 5), [staff]);
+  const activeStaffCount = staff.filter(isActiveStaff).length;
   const hasError = summaryQuery.isError || staffQuery.isError;
   return <div className="page-stack">
     {hasError && <ErrorState onRetry={() => { void summaryQuery.refetch(); void staffQuery.refetch(); }} />}
     <div className="metric-grid">
-      <MetricCard label="Active staff" value={summary ? formatNumber(summary.activeStaff) : '—'} detail={summary ? `${formatNumber(summary.staleStaff)} stale check-ins` : 'Awaiting staff feed'} accent="teal" icon={UsersRound} />
+      <MetricCard label="Active Staff" value={staffQuery.isLoading || staffQuery.isError ? '—' : formatNumber(activeStaffCount)} detail={summary ? `${formatNumber(summary.staleStaff)} stale check-ins` : 'Awaiting staff feed'} accent="teal" icon={UsersRound} />
       <MetricCard label="Pending approvals" value={summary ? formatNumber(summary.pendingApprovals) : '—'} detail="Across procurement and access" accent="amber" icon={Clock3} />
       <MetricCard label="Release readiness" value={summary ? `${summary.releaseReadiness}%` : '—'} detail="Evidence-backed gate score" accent="lime" icon={PackageCheck} />
       <MetricCard label="Blocked variances" value={summary ? formatNumber(summary.blockedVariances) : '—'} detail="Requires owner action" accent="coral" icon={AlertCircle} />

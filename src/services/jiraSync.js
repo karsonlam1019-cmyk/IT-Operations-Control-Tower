@@ -13,13 +13,11 @@ function getRequiredEnvironment() {
   const missing = REQUIRED_ENVIRONMENT_VARIABLES.filter(
     (name) => !process.env[name],
   );
-
   if (missing.length > 0) {
     throw new Error(
       `Missing required environment variables: ${missing.join(", ")}`,
     );
   }
-
   return {
     supabaseUrl: process.env.SUPABASE_URL,
     supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
@@ -44,23 +42,29 @@ export async function syncJiraShifts({
   const supabase = createSupabaseClient(supabaseUrl, supabaseServiceRoleKey, {
     realtime: { transport: WebSocket },
   });
+
   const normalizedJiraHost = jiraHost
     .trim()
     .replace(/^https?:\/\//i, "")
     .replace(/\/+$/, "");
+
   const authorization = `Basic ${Buffer.from(
     `${jiraEmail}:${jiraApiToken}`,
   ).toString("base64")}`;
 
-  console.log(
-    "[jira-sync] Fetching Jira issues updated in the last 10 minutes",
-  );
+  console.log("[jira-sync] Fetching Jira issues from project SHIFT...");
+
+  // Request the fields we need (standard + custom fields)
+  // Note: Custom fields usually have IDs like customfield_10001.
+  // For now we request common fields. We will refine the field IDs later if needed.
   const searchParams = new URLSearchParams({
-    jql: 'project = "SHIFT" AND updated >= -10m',
-    fields: "assignee,status,updated",
+    jql: 'project = "SHIFT" ORDER BY updated DESC',
+    fields: "summary,assignee,status,updated,duedate",
     maxResults: "100",
   });
+
   const jiraUrl = `https://${normalizedJiraHost}/rest/api/3/search?${searchParams}`;
+
   let response = await fetchImpl(jiraUrl, {
     headers: {
       Authorization: authorization,
@@ -68,8 +72,7 @@ export async function syncJiraShifts({
     },
   });
 
-  // Atlassian retired the legacy route for this tenant. Try the requested
-  // route first, then preserve live sync compatibility when it is rejected.
+  // Fallback for newer Jira search endpoint
   if (!response.ok && [404, 410].includes(response.status)) {
     const enhancedUrl = `https://${normalizedJiraHost}/rest/api/3/search/jql?${searchParams}`;
     response = await fetchImpl(enhancedUrl, {
@@ -90,30 +93,40 @@ export async function syncJiraShifts({
   const payload = await response.json();
   const issues = Array.isArray(payload.issues) ? payload.issues : [];
 
-  const rows = issues.map((issue) => ({
-    jira_issue_id: issue.id,
-    staff_id: issue.fields?.assignee?.accountId || "unassigned",
-    shift_status: issue.fields?.status?.name || "unknown",
-    updated_at: issue.fields?.updated
-      ? new Date(issue.fields.updated).toISOString()
-      : undefined,
-  }));
+  console.log(`[jira-sync] Received ${issues.length} Jira issue(s)`);
 
-  console.log(`[jira-sync] Received ${rows.length} Jira issue(s)`);
+  // Transform Jira issues → our shifts table format
+  const rows = issues.map((issue) => {
+    const fields = issue.fields || {};
+
+    return {
+      jira_issue_key: issue.key,                          // e.g. SHIFT-123
+      staff_member: fields.assignee?.displayName || fields.assignee?.emailAddress || "Unassigned",
+      team: null,                                         // will map custom field later
+      region: null,                                       // will map custom field later
+      environment: null,                                  // will map custom field later
+      signal: fields.status?.name || "Unknown",           // Status → Signal
+      action: null,                                       // will map custom field later
+      due_date: fields.duedate || null,
+      jira_updated_at: fields.updated ? new Date(fields.updated).toISOString() : null,
+      last_synced_at: new Date().toISOString(),
+    };
+  });
 
   if (rows.length === 0) {
     console.log("[jira-sync] No shifts to upsert");
     return { count: 0 };
   }
 
+  // Upsert into Supabase
   const { error } = await supabase
     .from("shifts")
-    .upsert(rows, { onConflict: "jira_issue_id" });
+    .upsert(rows, { onConflict: "jira_issue_key" });
 
   if (error) {
     throw new Error(`Supabase shifts upsert failed: ${error.message}`);
   }
 
-  console.log(`[jira-sync] Upserted ${rows.length} shift(s)`);
+  console.log(`[jira-sync] Successfully upserted ${rows.length} shift(s)`);
   return { count: rows.length };
 }

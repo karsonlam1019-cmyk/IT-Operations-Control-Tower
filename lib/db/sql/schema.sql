@@ -101,6 +101,24 @@ CREATE TABLE staff_statuses (
 );
 
 -- ---------------------------------------------------------------------
+-- Jira Shift Sync Records
+-- ---------------------------------------------------------------------
+CREATE TABLE shifts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    jira_issue_key TEXT NOT NULL UNIQUE,
+    staff_member TEXT NOT NULL DEFAULT 'Unassigned',
+    team TEXT,
+    region TEXT,
+    environment TEXT,
+    signal TEXT NOT NULL DEFAULT 'Unknown',
+    action TEXT,
+    due_date DATE,
+    jira_updated_at TIMESTAMPTZ,
+    last_synced_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX shifts_jira_updated_idx ON shifts(jira_updated_at);
+
+-- ---------------------------------------------------------------------
 -- Vendors
 -- ---------------------------------------------------------------------
 CREATE TABLE vendors (
@@ -290,6 +308,7 @@ ALTER TABLE teams ENABLE ROW LEVEL SECURITY;
 ALTER TABLE budget_lines ENABLE ROW LEVEL SECURITY;
 ALTER TABLE three_way_matches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE dlq_entries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE shifts ENABLE ROW LEVEL SECURITY;
 
 -- Helper: is the current user an admin (SUPER_ADMIN / DEPUTY_HEAD_OF_IT / FINANCE_AUDITOR)?
 CREATE OR REPLACE FUNCTION is_admin_user()
@@ -322,6 +341,13 @@ CREATE POLICY staff_select_self ON staff_statuses FOR SELECT USING (
 );
 CREATE POLICY staff_write_self ON staff_statuses FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 CREATE POLICY staff_write_admin ON staff_statuses FOR UPDATE USING (is_admin_user());
+
+-- ============ shifts ============
+-- Jira sync writes with the service role; authenticated staff can read.
+CREATE POLICY shifts_select_authenticated ON shifts
+  FOR SELECT TO authenticated USING (true);
+GRANT SELECT ON TABLE shifts TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE shifts TO service_role;
 
 -- ============ procurement_records ============
 -- FINANCE_AUDITOR read-only global; approvers see actionable; creators manage own; admins all

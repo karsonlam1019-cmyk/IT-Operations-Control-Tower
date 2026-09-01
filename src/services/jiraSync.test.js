@@ -4,7 +4,7 @@ import { afterEach, beforeEach, test } from "node:test";
 import { syncJiraShifts } from "./jiraSync.js";
 
 const TEST_ENVIRONMENT = {
-  SUPABASE_URL: "https://example.supabase.co/rest/v1",
+  SUPABASE_URL: "https://example.supabase.co",
   SUPABASE_SERVICE_ROLE_KEY: "test-service-role-key",
   JIRA_HOST: "https://example.atlassian.net/",
   JIRA_EMAIL: "test@example.com",
@@ -62,10 +62,12 @@ test("fetches SHIFT issues and upserts the mapped shifts", async () => {
       issues: [
         {
           id: "10001",
+          key: "SHIFT-10001",
           fields: {
-            assignee: { accountId: "staff-1" },
+            assignee: { accountId: "staff-1", displayName: "Staff One" },
             status: { name: "Active" },
             updated: "2026-08-30T12:00:00.000+0000",
+            duedate: "2026-09-05",
           },
         },
       ],
@@ -107,21 +109,28 @@ test("fetches SHIFT issues and upserts the mapped shifts", async () => {
   );
   assert.equal(
     requests[0].url.searchParams.get("jql"),
-    'project = "SHIFT" AND updated >= -10m',
+    'project = "SHIFT" ORDER BY updated DESC',
   );
   assert.equal(
     requests[0].url.searchParams.get("fields"),
-    "assignee,status,updated",
+    "summary,assignee,status,updated,duedate",
   );
   assert.deepEqual(upsertCall, {
     rows: [
       {
-        jira_issue_id: "10001",
-        staff_id: "staff-1",
-        shift_status: "Active",
-        updated_at: "2026-08-30T12:00:00.000Z",
+        jira_issue_key: "SHIFT-10001",
+        staff_member: "Staff One",
+        team: null,
+        region: null,
+        environment: null,
+        signal: "Active",
+        action: null,
+        due_date: "2026-09-05",
+        jira_updated_at: "2026-08-30T12:00:00.000Z",
+        last_synced_at: upsertCall.rows[0].last_synced_at,
       },
     ],
-    options: { onConflict: "jira_issue_id" },
+    options: { onConflict: "jira_issue_key" },
   });
+  assert.match(upsertCall.rows[0].last_synced_at, /^\d{4}-\d{2}-\d{2}T/);
 });

@@ -54,9 +54,6 @@ describe("StaffPage Jira sync", () => {
       if (path === "/api/staff") {
         return jsonResponse(staff);
       }
-      if (path === "/api/jira/tickets") {
-        return jsonResponse({ source: "jira", tickets: [] });
-      }
       throw new Error(`Unexpected request: ${path}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -125,9 +122,6 @@ describe("StaffPage Jira sync", () => {
       }
       if (path === "/api/staff") {
         return jsonResponse([initialStaff]);
-      }
-      if (path === "/api/jira/tickets") {
-        return jsonResponse({ source: "jira", tickets: [] });
       }
       throw new Error(`Unexpected request: ${path}`);
     });

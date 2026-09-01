@@ -1,4 +1,4 @@
-import { readEnv } from "../integrations/config";
+import { fetchWithTimeout, readEnv } from "../integrations/config";
 import { registerDlqCapture } from "./resilience";
 
 // Runtime PostgreSQL data access for the live Supabase database.
@@ -101,7 +101,73 @@ export type RuntimeStaffMember = {
   isStale: boolean;
 };
 
+function normalizeSupabaseUrl(value: string): string {
+  return value.replace(/\/+$/, "").replace(/\/rest\/v1$/i, "");
+}
+
+async function loadSyncedShiftStaff(): Promise<RuntimeStaffMember[] | null> {
+  const supabaseUrl = readEnv("SUPABASE_URL");
+  const serviceRoleKey = readEnv("SUPABASE_SERVICE_ROLE_KEY");
+  if (!supabaseUrl || !serviceRoleKey) return null;
+
+  const params = new URLSearchParams({
+    select:
+      "jira_issue_key,staff_member,team,region,environment,signal,due_date,jira_updated_at,last_synced_at",
+    order: "last_synced_at.desc",
+    limit: "100",
+  });
+
+  try {
+    const response = await fetchWithTimeout(
+      `${normalizeSupabaseUrl(supabaseUrl)}/rest/v1/shifts?${params}`,
+      {
+        headers: {
+          apikey: serviceRoleKey,
+          Authorization: `Bearer ${serviceRoleKey}`,
+          Accept: "application/json",
+        },
+      },
+    );
+    if (!response.ok) return null;
+
+    const rows = await response.json();
+    if (!Array.isArray(rows) || rows.length === 0) return null;
+
+    return rows
+      .filter((row) => str(row.jira_issue_key).length > 0)
+      .map((row) => {
+        const name = str(row.staff_member) || "Unassigned";
+        const parts = name.trim().split(/\s+/).filter(Boolean);
+        const initials = (
+          (parts[0]?.[0] ?? "") +
+          (parts.length > 1 ? (parts[1]?.[0] ?? "") : "")
+        ).toUpperCase();
+        const key = str(row.jira_issue_key);
+
+        return {
+          id: key,
+          name,
+          initials: initials || "—",
+          role: "Jira shift",
+          team: str(row.team) || "Jira / Unassigned",
+          region: str(row.region) || "—",
+          status: str(row.signal) || "Unknown",
+          ticket: key,
+          environment: str(row.environment) || "—",
+          eta: str(row.due_date) || "—",
+          updatedAt: str(row.last_synced_at || row.jira_updated_at) || "—",
+          isStale: false,
+        };
+      });
+  } catch {
+    return null;
+  }
+}
+
 export async function loadStaff(): Promise<RuntimeStaffMember[] | null> {
+  const syncedShifts = await loadSyncedShiftStaff();
+  if (syncedShifts) return syncedShifts;
+
   const pool = await getPool();
   if (!pool) return null;
   try {

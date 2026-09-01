@@ -86,11 +86,8 @@ import { Link, Route, Switch, useLocation, useSearch, Router as WouterRouter } f
 import { ErrorBoundary } from '@/components/error-boundary';
 import {
   useIntegrationHealth,
-  useJiraTickets,
-  jiraTicketsKey,
   useVendorSubmissions,
   type IntegrationStatus,
-  type JiraTicket,
   type VendorSubmission,
 } from '@/hooks/use-integrations';
 import { Button } from '@/components/ui/button';
@@ -429,27 +426,7 @@ function DashboardPage() {
         {recentStaff.map(member => <div className="table-row" key={member.id} data-testid={`row-activity-${member.id}`}><span className="person-cell"><span className="avatar">{member.initials}</span><span><b>{member.name}</b><small>{member.role}</small></span></span><span>{member.team}<small>{member.region}</small></span><span className="font-mono">{member.environment || '—'}</span><span><StatusPill value={member.status} /></span><span className="font-mono muted-label">{formatTime(member.updatedAt)}</span></div>)}
       </div> : <EmptyState title="No activity yet" detail="The staff feed has not returned any monitored updates." />}
     </section>
-    <JiraQueueSection />
   </div>;
-}
-
-function JiraQueueSection() {
-  const jira = useJiraTickets();
-  const tickets = jira.data?.tickets ?? [];
-  const sourceLabel = jira.data?.degraded ? `${jira.data.source} fallback` : jira.data?.source;
-  return (
-    <section className="panel animate-in">
-      <SectionHeading
-        eyebrow="Jira work queue"
-        title="Live tickets"
-        action={<span className="muted-label" title={jira.data?.message}>Source: {sourceLabel ?? '…'}</span>}
-      />
-      {jira.isLoading ? <LoadingRows count={3} /> : tickets.length ? <div className="activity-table">
-        <div className="table-head"><span>Key</span><span>Summary</span><span>Status</span><span>Env</span><span>Assignee</span></div>
-        {tickets.map((t: JiraTicket) => <div className="table-row" key={t.id} data-testid={`row-jira-${t.key}`}><span className="font-mono"><b>{t.key}</b></span><span>{t.summary}</span><span><StatusPill value={t.status} /></span><span className="font-mono">{t.environment}</span><span>{t.assignee}<small>{t.updatedAt}</small></span></div>)}
-      </div> : <EmptyState title="No tickets" detail="Jira is not configured yet." icon={ClipboardCheck} />}
-    </section>
-  );
 }
 
 export function StaffPage() {
@@ -478,7 +455,6 @@ export function StaffPage() {
       onSuccess: (result) => {
         setSyncFailure(null);
         void client.invalidateQueries({ queryKey: getListStaffQueryKey() });
-        void client.invalidateQueries({ queryKey: jiraTicketsKey });
         toast.success(`Jira sync complete: ${result.count} shift${result.count === 1 ? '' : 's'} processed`);
       },
       onError: (error) => {
@@ -490,13 +466,12 @@ export function StaffPage() {
   };
   return <div className="page-stack">
     <div className="toolbar panel"><div className="search-field"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search people, teams, regions" data-testid="input-search-staff" /></div><div className="filter-group"><Filter size={14} /><select value={status} onChange={e => setStatus(e.target.value)} data-testid="select-staff-status">{statuses.map(value => <option value={value} key={value}>{value}</option>)}</select></div><span className="toolbar-count font-mono">{filtered.length} / {staff.length} visible</span></div>
-     <JiraQueueSection />
     <section className="panel">
       <SectionHeading eyebrow="Coverage board" title="Shift signal" action={<div className="section-heading-actions"><div className="legend"><span><i className="legend-dot live" /> Live</span><span><i className="legend-dot stale" /> Stale</span></div><button className="button button-outline" onClick={runJiraSync} disabled={syncJira.isPending} data-testid="button-sync-jira"><RefreshCw size={14} className={syncJira.isPending ? 'animate-spin' : ''} />{syncJira.isPending ? 'Syncing Jira…' : 'Sync Jira'}</button></div>} />
        {syncFailure && <div className="error-state" role="alert" data-testid="sync-error"><AlertCircle size={18} /><div><strong>Jira sync unsuccessful</strong><p>{syncFailure}</p></div><button className="button button-quiet" onClick={runJiraSync} disabled={syncJira.isPending} data-testid="button-retry-sync"><RefreshCw size={14} /> Retry</button></div>}
       {query.isError ? <ErrorState onRetry={() => void query.refetch()} /> : query.isLoading ? <LoadingRows count={6} /> : !filtered.length ? <EmptyState title={staff.length ? 'No matching staff' : 'No staff feed available'} detail={staff.length ? 'Adjust the search or status filter.' : 'Once monitored staff are connected, their shift signal will appear here.'} icon={UsersRound} /> : <div className="staff-table">
         <div className="table-head staff-head"><span>Staff member</span><span>Team / region</span><span>Ticket</span><span>Environment</span><span>Signal</span><span>Action</span></div>
-        {filtered.map(member => <div className="table-row staff-row" key={member.id} data-testid={`row-staff-${member.id}`}><span className="person-cell"><span className={`avatar ${member.isStale ? 'avatar-stale' : ''}`}>{member.initials}</span><span><b>{member.name}</b><small>{member.role}</small></span></span><span><b>{member.team}</b><small>{member.region}</small></span><span className="font-mono">{member.ticket || 'No ticket'}</span><span className="font-mono">{member.environment || '—'}</span><span><StatusPill value={member.isStale ? 'Stale' : member.status} testId={`status-staff-${member.id}`} /><small className="table-subtext">Updated {formatTime(member.updatedAt)}</small></span><button className="row-action" onClick={() => changeStatus(member)} disabled={update.isPending} data-testid={`button-toggle-status-${member.id}`}>{member.status.toLowerCase().includes('active') ? <PauseCircle size={15} /> : <Play size={15} />}{member.status.toLowerCase().includes('active') ? 'Set away' : 'Set active'}</button></div>)}
+         {filtered.map(member => { const isJiraShift = member.id.startsWith('SHIFT-'); return <div className="table-row staff-row" key={member.id} data-testid={`row-staff-${member.id}`}><span className="person-cell"><span className={`avatar ${member.isStale ? 'avatar-stale' : ''}`}>{member.initials}</span><span><b>{member.name}</b><small>{member.role}</small></span></span><span><b>{member.team}</b><small>{member.region}</small></span><span className="font-mono">{member.ticket || 'No ticket'}</span><span className="font-mono">{member.environment || '—'}</span><span><StatusPill value={member.isStale ? 'Stale' : member.status} testId={`status-staff-${member.id}`} /><small className="table-subtext">Updated {formatTime(member.updatedAt)}</small></span><button className="row-action" onClick={() => changeStatus(member)} disabled={update.isPending || isJiraShift} data-testid={`button-toggle-status-${member.id}`}>{isJiraShift ? <Check size={15} /> : member.status.toLowerCase().includes('active') ? <PauseCircle size={15} /> : <Play size={15} />}{isJiraShift ? 'Synced from Jira' : member.status.toLowerCase().includes('active') ? 'Set away' : 'Set active'}</button></div>; })}
       </div>}
     </section>
   </div>;

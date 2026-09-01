@@ -440,18 +440,18 @@ export function DashboardPage() {
       </section>
     </div>
     <section className="panel animate-in animate-delay-3">
-      <SectionHeading eyebrow="Jira / live work" title="Work Queue" action={<span className="muted-label">{jiraTickets.length} open items</span>} />
-      {jiraTicketsQuery.isError ? <ErrorState onRetry={() => void jiraTicketsQuery.refetch()} /> : jiraTicketsQuery.isLoading ? <LoadingRows count={4} /> : jiraTickets.length ? <div className="activity-table work-queue-table">
-        <div className="table-head"><span>Ticket</span><span>Summary</span><span>Status</span><span>Environment</span><span>Assignee</span></div>
-        {jiraTickets.map(ticket => <div className="table-row" key={ticket.id || ticket.key} data-testid={`row-work-queue-${ticket.key}`}><span className="font-mono">{ticket.key}</span><span><b>{ticket.summary}</b></span><span><StatusPill value={ticket.status} /></span><span className="font-mono">{ticket.environment}</span><span>{ticket.assignee}</span></div>)}
-      </div> : <EmptyState title="No open Jira work" detail="All synchronized Jira work is completed." icon={ListChecks} />}
-    </section>
-    <section className="panel animate-in animate-delay-3">
       <SectionHeading eyebrow="Latest telemetry" title="Activity across operations" action={<span className="muted-label">Showing latest 5 updates</span>} />
       {staffQuery.isLoading ? <LoadingRows /> : recentStaff.length ? <div className="activity-table">
         <div className="table-head"><span>Person</span><span>Workstream</span><span>Environment</span><span>State</span><span>Updated</span></div>
          {recentStaff.map(member => <div className="table-row" key={member.id} data-testid={`row-activity-${member.id}`}><span className="person-cell"><span className="avatar">{member.initials}</span><span><b>{member.name}</b>{member.role && <small>{member.role}</small>}</span></span><span>{member.team}<small>{member.region}</small></span><span className="font-mono">{member.environment || '—'}</span><span><StatusPill value={member.status} /></span><span className="font-mono muted-label">{formatTime(member.updatedAt)}</span></div>)}
       </div> : <EmptyState title="No activity yet" detail="The staff feed has not returned any monitored updates." />}
+    </section>
+    <section className="panel animate-in animate-delay-3">
+      <SectionHeading eyebrow="Jira / live work" title="Work Queue" action={<span className="muted-label">{jiraTickets.length} open items</span>} />
+      {jiraTicketsQuery.isError ? <ErrorState onRetry={() => void jiraTicketsQuery.refetch()} /> : jiraTicketsQuery.isLoading ? <LoadingRows count={4} /> : jiraTickets.length ? <div className="activity-table work-queue-table">
+        <div className="table-head"><span>Ticket</span><span>Summary</span><span>Status</span><span>Environment</span><span>Assignee</span></div>
+        {jiraTickets.map(ticket => <div className="table-row" key={ticket.id || ticket.key} data-testid={`row-work-queue-${ticket.key}`}><span className="font-mono">{ticket.key}</span><span><b>{ticket.summary}</b></span><span><StatusPill value={ticket.status} /></span><span className="font-mono">{ticket.environment}</span><span>{ticket.assignee}</span></div>)}
+      </div> : <EmptyState title="No open Jira work" detail="All synchronized Jira work is completed." icon={ListChecks} />}
     </section>
   </div>;
 }

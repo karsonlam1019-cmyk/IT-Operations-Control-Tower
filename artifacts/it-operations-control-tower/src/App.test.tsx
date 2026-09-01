@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -40,14 +40,24 @@ function jsonResponse(payload: unknown, status = 200) {
 describe("StaffPage Jira sync", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
     cleanup();
   });
 
   it("refreshes the staff query after a successful sync", async () => {
     let staff = [initialStaff];
+    let syncAttempts = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       if (path === "/api/staff/sync-jira") {
+        syncAttempts += 1;
+        if (syncAttempts === 1) {
+          return jsonResponse({
+            error: "Jira shift sync failed; check the integration logs",
+            code: "JIRA_SYNC_UNAVAILABLE",
+            category: "JIRA",
+          }, 503);
+        }
         staff = [refreshedStaff];
         return jsonResponse({ count: 1 });
       }
@@ -82,6 +92,53 @@ describe("StaffPage Jira sync", () => {
           String(input) === "/api/staff" && init?.method === "GET",
       ),
     ).toHaveLength(2);
+  });
+
+  it("syncs immediately on mount and schedules another sync every five minutes", async () => {
+    const intervalCallbacks: Array<() => void> = [];
+    const setIntervalSpy = vi.spyOn(window, "setInterval").mockImplementation((...args: Parameters<typeof window.setInterval>) => {
+      const [callback, delay] = args;
+      if (delay === 300_000) {
+        intervalCallbacks.push(callback as () => void);
+      }
+      return 1 as unknown as ReturnType<typeof window.setInterval>;
+    });
+    let staff = [initialStaff];
+    let syncCalls = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/staff/sync-jira") {
+        syncCalls += 1;
+        staff = [refreshedStaff];
+        return jsonResponse({ count: 1 });
+      }
+      if (path === "/api/staff") {
+        return jsonResponse(staff);
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <StaffPage />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("Platform Reliability")).toBeInTheDocument();
+    expect(syncCalls).toBe(1);
+    expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 300_000);
+
+    await act(async () => {
+      intervalCallbacks[0]?.();
+    });
+    await waitFor(() => expect(syncCalls).toBe(2));
   });
 
   it.each([

@@ -181,6 +181,8 @@ const syncFailureMessages: Record<SyncFailureCategory, string> = {
   UNKNOWN: 'Jira sync failed unexpectedly. Check the integration logs and try again.',
 };
 
+const JIRA_SYNC_INTERVAL_MS = 5 * 60 * 1000;
+
 function getSyncFailureMessage(error: unknown) {
   if (error && typeof error === 'object' && 'data' in error) {
     const data = (error as { data?: unknown }).data;
@@ -447,6 +449,7 @@ export function StaffPage() {
   const [syncFailure, setSyncFailure] = useState<string | null>(null);
   const staff = (query.data as StaffMember[] | undefined) ?? [];
   const statuses = ['All', ...Array.from(new Set(staff.map(item => item.status).filter(Boolean)))];
+  const syncJiraRef = useRef(syncJira);
   const filtered = useMemo(() => staff.filter(item => {
     const text = `${item.name} ${item.role} ${item.team} ${item.region}`.toLowerCase();
     return text.includes(search.toLowerCase()) && (status === 'All' || item.status === status);
@@ -458,8 +461,12 @@ export function StaffPage() {
       onError: () => toast.error('Status update failed'),
     });
   };
-  const runJiraSync = () => {
-    syncJira.mutate(undefined, {
+  useEffect(() => {
+    syncJiraRef.current = syncJira;
+  }, [syncJira]);
+  const runJiraSync = useCallback(() => {
+    if (syncJiraRef.current.isPending) return;
+    syncJiraRef.current.mutate(undefined, {
       onSuccess: (result) => {
         setSyncFailure(null);
         void client.invalidateQueries({ queryKey: getListStaffQueryKey() });
@@ -471,7 +478,16 @@ export function StaffPage() {
         toast.error(message);
       },
     });
-  };
+  }, [client]);
+  const autoSyncStartedRef = useRef(false);
+  useEffect(() => {
+    if (!autoSyncStartedRef.current) {
+      autoSyncStartedRef.current = true;
+      runJiraSync();
+    }
+    const timer = window.setInterval(runJiraSync, JIRA_SYNC_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [runJiraSync]);
   return <div className="page-stack">
     <div className="toolbar panel"><div className="search-field"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search people, teams, regions" data-testid="input-search-staff" /></div><div className="filter-group"><Filter size={14} /><select value={status} onChange={e => setStatus(e.target.value)} data-testid="select-staff-status">{statuses.map(value => <option value={value} key={value}>{value}</option>)}</select></div><span className="toolbar-count font-mono">{filtered.length} / {staff.length} visible</span></div>
     <section className="panel">

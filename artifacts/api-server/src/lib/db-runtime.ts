@@ -112,7 +112,7 @@ async function loadSyncedShiftStaff(): Promise<RuntimeStaffMember[] | null> {
 
   const params = new URLSearchParams({
     select:
-      "jira_issue_key,staff_member,team,region,environment,signal,due_date,jira_updated_at,last_synced_at",
+      "jira_issue_key,staff_member,team,region,environment,signal,action,due_date,jira_updated_at,last_synced_at",
     order: "last_synced_at.desc",
     limit: "100",
   });
@@ -151,7 +151,7 @@ async function loadSyncedShiftStaff(): Promise<RuntimeStaffMember[] | null> {
           role: "",
           team: str(row.team) || "Jira / Unassigned",
           region: str(row.region) || "—",
-          status: str(row.signal) || "Unknown",
+          status: str(row.action) || str(row.signal) || "Unknown",
           ticket: key,
           environment: str(row.environment) || "—",
           eta: str(row.due_date) || "—",

@@ -26,7 +26,8 @@ describe("Jira work queue mapping", () => {
   });
 
   it("maps named Jira fields and excludes Completed work", async () => {
-    process.env.JIRA_HOST = "jira.example.com";
+    delete process.env.JIRA_HOST;
+    process.env.JIRA_BASE_URL = "https://jira.example.com/";
     process.env.JIRA_EMAIL = "jira@example.com";
     process.env.JIRA_API_TOKEN = "test-token";
     process.env.JIRA_PROJECT_KEY = "SHIFT";

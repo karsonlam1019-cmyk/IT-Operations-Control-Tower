@@ -100,6 +100,16 @@ function getSyncFailureCategory(error: unknown): SyncFailureCategory {
     return "UNKNOWN";
   }
 
+  const category = (error as Error & { category?: unknown }).category;
+  if (
+    category === "CONFIGURATION" ||
+    category === "JIRA" ||
+    category === "SUPABASE" ||
+    category === "UNKNOWN"
+  ) {
+    return category;
+  }
+
   const message = error.message;
   if (message.startsWith("Missing required environment variables:")) {
     return "CONFIGURATION";
@@ -176,7 +186,7 @@ router.post("/staff/sync-jira", async (req, res): Promise<void> => {
   } catch (error) {
     const category = getSyncFailureCategory(error);
     req.log.error(
-      { err: error },
+      { category },
       category === "CONFIGURATION"
         ? "Jira shift sync is not configured"
         : "Jira shift sync failed",

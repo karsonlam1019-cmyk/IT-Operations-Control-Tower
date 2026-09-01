@@ -45,7 +45,7 @@ describe("StaffPage Jira sync", () => {
     cleanup();
   });
 
-  it("shows the focused four-column Shift signal table", async () => {
+  it("shows the Shift signal table with separate status columns", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);
       if (path === "/api/staff/sync-jira") {
@@ -71,14 +71,11 @@ describe("StaffPage Jira sync", () => {
     );
 
     expect(await screen.findByText("Maya Chen")).toBeInTheDocument();
-    expect(screen.getByText("Staff member")).toBeInTheDocument();
-    expect(screen.getByText("Team / region")).toBeInTheDocument();
-    expect(screen.getByText("Signal")).toBeInTheDocument();
+    expect(screen.getByText("Staff Member")).toBeInTheDocument();
+    expect(screen.getByText("Team")).toBeInTheDocument();
+    expect(screen.getByText("Region")).toBeInTheDocument();
+    expect(screen.getByTestId("header-staff-status")).toHaveTextContent("Status");
     expect(screen.getByText("Action")).toBeInTheDocument();
-    expect(screen.queryByText("Ticket")).not.toBeInTheDocument();
-    expect(screen.queryByText("Environment")).not.toBeInTheDocument();
-    expect(screen.queryByText("SHIFT-1001")).not.toBeInTheDocument();
-    expect(screen.queryByText("PROD")).not.toBeInTheDocument();
     expect(screen.getByTestId("status-staff-s-001")).toBeInTheDocument();
     expect(screen.getByTestId("button-toggle-status-s-001")).toBeInTheDocument();
   });
@@ -125,6 +122,7 @@ describe("StaffPage Jira sync", () => {
     await waitFor(() =>
       expect(screen.getByText("Platform Reliability")).toBeInTheDocument(),
     );
+    expect(screen.queryByTestId("sync-error")).not.toBeInTheDocument();
     expect(
       fetchMock.mock.calls.filter(
         ([input, init]) =>
@@ -178,6 +176,96 @@ describe("StaffPage Jira sync", () => {
       intervalCallbacks[0]?.();
     });
     await waitFor(() => expect(syncCalls).toBe(2));
+  });
+
+  it("keeps people search and status filtering local without another Jira sync", async () => {
+    const secondStaff = {
+      ...refreshedStaff,
+      id: "s-002",
+      name: "Ethan Wong",
+      initials: "EW",
+      status: "Away",
+    };
+    let syncCalls = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/staff/sync-jira") {
+        syncCalls += 1;
+        return jsonResponse({ count: 1 });
+      }
+      if (path === "/api/staff") {
+        return jsonResponse([refreshedStaff, secondStaff]);
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <StaffPage />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("Maya Chen")).toBeInTheDocument();
+    await waitFor(() => expect(syncCalls).toBe(1));
+
+    fireEvent.change(screen.getByTestId("input-search-staff"), {
+      target: { value: "Ethan" },
+    });
+    expect(screen.getByText("Ethan Wong")).toBeInTheDocument();
+    expect(screen.queryByText("Maya Chen")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId("select-staff-status"), {
+      target: { value: "Away" },
+    });
+    expect(screen.getByText("Ethan Wong")).toBeInTheDocument();
+    expect(syncCalls).toBe(1);
+  });
+
+  it("filters by the Staff API status value sourced from Jira Status/action", async () => {
+    const secondStaff = {
+      ...refreshedStaff,
+      id: "s-002",
+      name: "Ethan Wong",
+      initials: "EW",
+      status: "On Call",
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/staff/sync-jira") {
+        return jsonResponse({ count: 1 });
+      }
+      if (path === "/api/staff") {
+        return jsonResponse([initialStaff, secondStaff]);
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <StaffPage />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("Maya Chen")).toBeInTheDocument();
+    fireEvent.change(screen.getByTestId("select-staff-status"), {
+      target: { value: "On Call" },
+    });
+    expect(screen.getByText("Ethan Wong")).toBeInTheDocument();
+    expect(screen.queryByText("Maya Chen")).not.toBeInTheDocument();
   });
 
   it("derives Active Workforce Ratio from the live Shift signal staff feed", async () => {

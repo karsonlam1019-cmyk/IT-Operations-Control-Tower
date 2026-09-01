@@ -10,6 +10,7 @@ Enterprise command center for staff operations, release governance, procurement 
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
+- `pnpm --filter @workspace/db run migrate:forward` — apply ordered, idempotent migrations to an existing database
 - Required env: `DATABASE_URL` — Postgres connection string
 
 ## Stack
@@ -46,6 +47,7 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 - Run API codegen after every OpenAPI change.
 - Start app services through their managed workflows so `PORT` and `BASE_PATH` are provided.
+- Apply `migrate:forward` before deploying API code that reads newly added database columns.
 
 ## Pointers
 

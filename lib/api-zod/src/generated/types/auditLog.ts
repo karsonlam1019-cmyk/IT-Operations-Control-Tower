@@ -13,5 +13,7 @@ export interface AuditLog {
   target: string;
   timestamp: string;
   region: string;
-  deputy: boolean;
+  actedAsDeputy: boolean;
+  /** Legacy alias for actedAsDeputy */
+  deputy?: boolean;
 }

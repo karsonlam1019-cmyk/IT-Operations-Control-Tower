@@ -103,6 +103,207 @@ export async function loadStaff(): Promise<RuntimeStaffMember[] | null> {
 }
 
 // ---------------------------------------------------------------------
+// Governance (Head of IT leave + automatic deputy authority)
+// ---------------------------------------------------------------------
+export type RuntimeGovernancePerson = {
+  id: string;
+  name: string;
+  role: string;
+  region: string;
+  onLeave: boolean;
+};
+
+export type RuntimeDelegationStatus = {
+  headOfIt: RuntimeGovernancePerson;
+  deputy: RuntimeGovernancePerson | null;
+  delegationActive: boolean;
+  authorityLabel: string;
+};
+
+export type RuntimeAuditLog = {
+  id: string;
+  actor: string;
+  action: string;
+  target: string;
+  timestamp: string;
+  region: string;
+  actedAsDeputy: boolean;
+};
+
+export async function loadDelegationStatus(): Promise<RuntimeDelegationStatus | null> {
+  const pool = await getPool();
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+         head.id::text AS head_id,
+         head.full_name AS head_name,
+         head.role AS head_role,
+         head.region AS head_region,
+         COALESCE(head.on_leave, false) AS head_on_leave,
+         deputy.id::text AS deputy_id,
+         deputy.full_name AS deputy_name,
+         deputy.role AS deputy_role,
+         deputy.region AS deputy_region,
+         COALESCE(deputy.on_leave, false) AS deputy_on_leave
+       FROM profiles head
+       LEFT JOIN profiles deputy
+         ON deputy.deputy_for_user_id = head.id
+        AND deputy.role = 'DEPUTY_HEAD_OF_IT'
+        AND COALESCE(deputy.on_leave, false) = false
+       WHERE head.role = 'SUPER_ADMIN'
+       ORDER BY head.created_at
+       LIMIT 1`,
+    );
+    const row = rows[0];
+    if (!row) return null;
+    const delegationActive = Boolean(row.head_on_leave) && Boolean(row.deputy_id);
+    return {
+      headOfIt: {
+        id: str(row.head_id),
+        name: str(row.head_name),
+        role: str(row.head_role),
+        region: str(row.head_region),
+        onLeave: Boolean(row.head_on_leave),
+      },
+      deputy: row.deputy_id ? {
+        id: str(row.deputy_id),
+        name: str(row.deputy_name),
+        role: str(row.deputy_role),
+        region: str(row.deputy_region),
+        onLeave: Boolean(row.deputy_on_leave),
+      } : null,
+      delegationActive,
+      authorityLabel: delegationActive
+        ? `Deputy authority · ${str(row.deputy_name)}`
+        : `Head of IT · ${str(row.head_name)}`,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function updateHeadOfItLeave(
+  onLeave: boolean,
+): Promise<RuntimeDelegationStatus | null> {
+  const pool = await getPool();
+  if (!pool) return null;
+  try {
+    const result = await pool.query(
+      `UPDATE profiles
+          SET on_leave = $1
+        WHERE id = (
+          SELECT id
+            FROM profiles
+           WHERE role = 'SUPER_ADMIN'
+           ORDER BY created_at
+           LIMIT 1
+        )
+        RETURNING id::text AS id, full_name AS name`,
+      [onLeave],
+    );
+    const head = result.rows[0];
+    if (!head) return null;
+    await pool.query(
+      `INSERT INTO audit_logs (
+         actor_id, action_type, target_resource, old_value, new_value, acted_as_deputy
+       ) VALUES (
+         $1::uuid, $2, $3, $4::jsonb, $5::jsonb, FALSE
+       )`,
+      [
+        str(head.id),
+        onLeave ? "HEAD_OF_IT_LEAVE_ENABLED" : "HEAD_OF_IT_LEAVE_DISABLED",
+        `profile:${str(head.id)}`,
+        JSON.stringify({ onLeave: !onLeave }),
+        JSON.stringify({ onLeave }),
+      ],
+    );
+    return loadDelegationStatus();
+  } catch {
+    return null;
+  }
+}
+
+export async function recordAuditEvent(
+  action: string,
+  target: string,
+  actorId?: string,
+): Promise<RuntimeAuditLog | null> {
+  const pool = await getPool();
+  if (!pool) return null;
+  try {
+    const status = await loadDelegationStatus();
+    if (!status) return null;
+    const effectiveActorId = actorId || (status.delegationActive ? status.deputy?.id : status.headOfIt.id);
+    if (!effectiveActorId) return null;
+    const actedAsDeputy = Boolean(
+      status.delegationActive
+      && status.deputy
+      && effectiveActorId === status.deputy.id,
+    );
+    const { rows } = await pool.query(
+      `INSERT INTO audit_logs (
+         actor_id, action_type, target_resource, acted_as_deputy
+       ) VALUES ($1::uuid, $2, $3, $4)
+       RETURNING id::text AS id, created_at`,
+      [effectiveActorId, action, target, actedAsDeputy],
+    );
+    const row = rows[0];
+    if (!row) return null;
+    const actorResult = await pool.query(
+      `SELECT full_name AS name, region
+         FROM profiles
+        WHERE id = $1::uuid
+        LIMIT 1`,
+      [effectiveActorId],
+    );
+    const actorRow = actorResult.rows[0];
+    return {
+      id: str(row.id),
+      actor: actorRow?.name ? str(actorRow.name) : "System",
+      action,
+      target,
+      timestamp: str(row.created_at),
+      region: actorRow?.region ? str(actorRow.region) : "HK",
+      actedAsDeputy,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function loadAuditLogs(): Promise<RuntimeAuditLog[] | null> {
+  const pool = await getPool();
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+         a.id::text AS id,
+         COALESCE(p.full_name, 'System') AS actor,
+         a.action_type AS action,
+         a.target_resource AS target,
+         to_char(a.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS timestamp,
+         COALESCE(p.region, 'HK') AS region,
+         COALESCE(a.acted_as_deputy, false) AS acted_as_deputy
+       FROM audit_logs a
+       LEFT JOIN profiles p ON p.id = a.actor_id
+       ORDER BY a.created_at DESC`,
+    );
+    return rows.map((row) => ({
+      id: str(row.id),
+      actor: str(row.actor),
+      action: str(row.action),
+      target: str(row.target),
+      timestamp: str(row.timestamp),
+      region: str(row.region),
+      actedAsDeputy: Boolean(row.acted_as_deputy),
+    }));
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------
 // Procurement (procurement_records + vendors)
 // ---------------------------------------------------------------------
 const STATUS_LABEL: Record<string, string> = {
@@ -708,6 +909,9 @@ export type RuntimePaymentSchedule = {
   paidAmount: number;
   paymentReference: string;
   threeWayMatch: string;
+  confirmationStatus: string;
+  confirmationNote: string;
+  confirmedAt: string;
 };
 
 const PAYMENT_SELECT = `
@@ -721,6 +925,9 @@ const PAYMENT_SELECT = `
          ps.variance_resolution_notes, ps.dual_signoff_at,
          to_char(ps.paid_at,'YYYY-MM-DD') AS paid_at,
          COALESCE(ps.paid_amount,0)::float8 AS paid_amount, ps.payment_reference,
+          CASE WHEN ps.vendor_confirmed_at IS NULL THEN 'PENDING' ELSE 'CONFIRMED' END AS confirmation_status,
+          ps.vendor_confirmation_note AS confirmation_note,
+          ps.vendor_confirmed_at AS confirmed_at,
          (SELECT status::text FROM three_way_matches tw
            WHERE tw.payment_schedule_id = ps.id ORDER BY tw.created_at DESC LIMIT 1) AS three_way_match
     FROM payment_schedules ps`;
@@ -744,10 +951,14 @@ const mapPayment = (row: Record<string, unknown>): RuntimePaymentSchedule => ({
   paidAmount: num(row.paid_amount),
   paymentReference: str(row.payment_reference),
   threeWayMatch: str(row.three_way_match),
+  confirmationStatus: str(row.confirmation_status) || "PENDING",
+  confirmationNote: str(row.confirmation_note),
+  confirmedAt: str(row.confirmed_at),
 });
 
 export async function listPaymentSchedules(
   procurementId: string,
+  options: { throwOnError?: boolean } = {},
 ): Promise<RuntimePaymentSchedule[] | null> {
   const pool = await getPool();
   if (!pool) return null;
@@ -757,20 +968,65 @@ export async function listPaymentSchedules(
       [procurementId],
     );
     return rows.map(mapPayment);
-  } catch {
+  } catch (error) {
+    if (options.throwOnError) {
+      throw new Error("Payment schedule database query failed", { cause: error });
+    }
     return null;
+  }
+}
+
+export type RuntimeVendorPortalPurchaseOrder = RuntimeProcurementDetail & {
+  milestones: RuntimePaymentSchedule[];
+};
+
+export async function loadVendorPortalPurchaseOrders(
+  vendorId: string,
+): Promise<RuntimeVendorPortalPurchaseOrder[] | null> {
+  const pool = await getPool();
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      `${PR_SELECT}
+        WHERE pr.vendor_id = $1::uuid
+          AND NULLIF(BTRIM(pr.po_number), '') IS NOT NULL
+          AND pr.status IN (
+            'PO_ISSUED',
+            'MILESTONE_RECEIVED',
+            'INVOICE_PENDING',
+            'VARIANCE_BLOCKED',
+            'PAYMENT_APPROVED',
+            'PAID'
+          )
+        ORDER BY pr.created_at DESC`,
+      [vendorId],
+    );
+    const records = rows.map(mapProcurementDetail);
+    return Promise.all(records.map(async (record) => {
+      const schedules = (await listPaymentSchedules(record.id, { throwOnError: true })) ?? [];
+      return {
+        ...record,
+        milestones: schedules,
+      };
+    }));
+  } catch (error) {
+    throw new Error("Vendor portal database query failed", { cause: error });
   }
 }
 
 export async function getPaymentSchedule(
   id: string,
+  options: { throwOnError?: boolean } = {},
 ): Promise<RuntimePaymentSchedule | null> {
   const pool = await getPool();
   if (!pool) return null;
   try {
     const { rows } = await pool.query(`${PAYMENT_SELECT} WHERE ps.id = $1::uuid`, [id]);
     return rows.length ? mapPayment(rows[0]) : null;
-  } catch {
+  } catch (error) {
+    if (options.throwOnError) {
+      throw new Error("Payment schedule database query failed", { cause: error });
+    }
     return null;
   }
 }
@@ -832,6 +1088,102 @@ export async function submitInvoice(
     return null;
   }
   return getPaymentSchedule(id);
+}
+
+export async function submitVendorInvoice(
+  id: string,
+  procurementId: string,
+  input: Record<string, unknown>,
+): Promise<RuntimePaymentSchedule | null> {
+  const pool = await getPool();
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE payment_schedules ps
+          SET invoice_amount = $3,
+              invoice_number = $4,
+              invoice_date = COALESCE($5::date, NOW()),
+              updated_at = NOW()
+         FROM procurement_records pr
+        WHERE ps.id = $1::uuid
+          AND ps.procurement_id = $2::uuid
+          AND pr.id = ps.procurement_id
+          AND NULLIF(BTRIM(pr.po_number), '') IS NOT NULL
+          AND pr.status IN (
+            'PO_ISSUED',
+            'MILESTONE_RECEIVED',
+            'INVOICE_PENDING',
+            'VARIANCE_BLOCKED',
+            'PAYMENT_APPROVED',
+            'PAID'
+          )
+          AND ps.invoice_number IS NULL
+          AND ps.paid_at IS NULL
+        RETURNING ps.id::text AS id`,
+      [
+        id,
+        procurementId,
+        num(input.invoiceAmount),
+        String(input.invoiceNumber),
+        input.invoiceDate ? String(input.invoiceDate) : null,
+      ],
+    );
+    return rows.length
+      ? getPaymentSchedule(str(rows[0].id), { throwOnError: true })
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function confirmVendorMilestone(
+  id: string,
+  confirmationNote = "",
+): Promise<RuntimePaymentSchedule | null> {
+  const pool = await getPool();
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE payment_schedules
+          SET vendor_confirmed_at = NOW(),
+              vendor_confirmation_note = $2,
+              updated_at = NOW()
+        WHERE id = $1::uuid
+          AND is_milestone_payment = TRUE
+          AND vendor_confirmed_at IS NULL
+          AND EXISTS (
+            SELECT 1
+              FROM procurement_records pr
+             WHERE pr.id = payment_schedules.procurement_id
+               AND NULLIF(BTRIM(pr.po_number), '') IS NOT NULL
+               AND pr.status IN (
+                 'PO_ISSUED',
+                 'MILESTONE_RECEIVED',
+                 'INVOICE_PENDING',
+                 'VARIANCE_BLOCKED',
+                 'PAYMENT_APPROVED',
+                 'PAID'
+               )
+          )
+        RETURNING procurement_id::text AS procurement_id`,
+      [id, confirmationNote],
+    );
+    const procurementId = str(rows[0]?.procurement_id);
+    if (!procurementId) return null;
+    await pool.query(
+      `UPDATE procurement_records
+          SET status = CASE
+            WHEN status = 'PO_ISSUED' THEN 'MILESTONE_RECEIVED'
+            ELSE status
+          END,
+          updated_at = NOW()
+        WHERE id = $1::uuid`,
+      [procurementId],
+    );
+  } catch {
+    return null;
+  }
+  return getPaymentSchedule(id, { throwOnError: true });
 }
 
 // Resolve a blocked variance (finance + legal consultation).

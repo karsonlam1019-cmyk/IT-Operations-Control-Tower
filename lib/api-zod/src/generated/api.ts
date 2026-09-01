@@ -79,6 +79,56 @@ export const UpdateStaffStatusResponse = zod.object({
 
 
 /**
+ * @summary Get the active Head of IT delegation
+ */
+export const GetDelegationStatusResponse = zod.object({
+  "headOfIt": zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "role": zod.string(),
+  "region": zod.string(),
+  "onLeave": zod.boolean()
+}),
+  "deputy": zod.union([zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "role": zod.string(),
+  "region": zod.string(),
+  "onLeave": zod.boolean()
+}),zod.null()]),
+  "delegationActive": zod.boolean(),
+  "authorityLabel": zod.string()
+})
+
+
+/**
+ * @summary Mark the Head of IT on or off leave
+ */
+export const UpdateHeadOfItLeaveBody = zod.object({
+  "onLeave": zod.boolean()
+})
+
+export const UpdateHeadOfItLeaveResponse = zod.object({
+  "headOfIt": zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "role": zod.string(),
+  "region": zod.string(),
+  "onLeave": zod.boolean()
+}),
+  "deputy": zod.union([zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "role": zod.string(),
+  "region": zod.string(),
+  "onLeave": zod.boolean()
+}),zod.null()]),
+  "delegationActive": zod.boolean(),
+  "authorityLabel": zod.string()
+})
+
+
+/**
  * @summary List environment release gates
  */
 export const ListReleaseGatesResponseItem = zod.object({
@@ -274,7 +324,10 @@ export const ListPaymentSchedulesResponseItem = zod.object({
   "paidAt": zod.string().optional(),
   "paidAmount": zod.number().optional(),
   "paymentReference": zod.string().optional(),
-  "threeWayMatch": zod.string().optional()
+  "threeWayMatch": zod.string().optional(),
+  "confirmationStatus": zod.string().optional(),
+  "confirmationNote": zod.string().optional(),
+  "confirmedAt": zod.string().optional()
 })
 export const ListPaymentSchedulesResponse = zod.array(ListPaymentSchedulesResponseItem)
 
@@ -313,7 +366,10 @@ export const CreatePaymentScheduleResponse = zod.object({
   "paidAt": zod.string().optional(),
   "paidAmount": zod.number().optional(),
   "paymentReference": zod.string().optional(),
-  "threeWayMatch": zod.string().optional()
+  "threeWayMatch": zod.string().optional(),
+  "confirmationStatus": zod.string().optional(),
+  "confirmationNote": zod.string().optional(),
+  "confirmedAt": zod.string().optional()
 })
 
 
@@ -349,7 +405,10 @@ export const SubmitInvoiceResponse = zod.object({
   "paidAt": zod.string().optional(),
   "paidAmount": zod.number().optional(),
   "paymentReference": zod.string().optional(),
-  "threeWayMatch": zod.string().optional()
+  "threeWayMatch": zod.string().optional(),
+  "confirmationStatus": zod.string().optional(),
+  "confirmationNote": zod.string().optional(),
+  "confirmedAt": zod.string().optional()
 })
 
 
@@ -406,7 +465,10 @@ export const ResolveVarianceResponse = zod.object({
   "paidAt": zod.string().optional(),
   "paidAmount": zod.number().optional(),
   "paymentReference": zod.string().optional(),
-  "threeWayMatch": zod.string().optional()
+  "threeWayMatch": zod.string().optional(),
+  "confirmationStatus": zod.string().optional(),
+  "confirmationNote": zod.string().optional(),
+  "confirmedAt": zod.string().optional()
 })
 
 
@@ -440,7 +502,10 @@ export const DualSignoffResponse = zod.object({
   "paidAt": zod.string().optional(),
   "paidAmount": zod.number().optional(),
   "paymentReference": zod.string().optional(),
-  "threeWayMatch": zod.string().optional()
+  "threeWayMatch": zod.string().optional(),
+  "confirmationStatus": zod.string().optional(),
+  "confirmationNote": zod.string().optional(),
+  "confirmedAt": zod.string().optional()
 })
 
 
@@ -475,7 +540,169 @@ export const MarkPaidResponse = zod.object({
   "paidAt": zod.string().optional(),
   "paidAmount": zod.number().optional(),
   "paymentReference": zod.string().optional(),
-  "threeWayMatch": zod.string().optional()
+  "threeWayMatch": zod.string().optional(),
+  "confirmationStatus": zod.string().optional(),
+  "confirmationNote": zod.string().optional(),
+  "confirmedAt": zod.string().optional()
+})
+
+
+/**
+ * Resolves the vendor from the X-Vendor-API-Key header and returns only that vendor's purchase orders and payment milestones.
+ * @summary Authenticate a vendor and list its purchase orders
+ */
+
+
+
+export const GetVendorPortalSessionHeader = zod.object({
+  "X-Vendor-API-Key": zod.string().min(1)
+})
+
+export const GetVendorPortalSessionResponse = zod.object({
+  "vendor": zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "region": zod.string(),
+  "contact": zod.string()
+}),
+  "purchaseOrders": zod.array(zod.object({
+  "id": zod.string(),
+  "prNumber": zod.string(),
+  "poNumber": zod.string(),
+  "vendor": zod.string(),
+  "region": zod.string(),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "hkdAmount": zod.number(),
+  "status": zod.string(),
+  "match": zod.string(),
+  "createdAt": zod.string(),
+  "projectCode": zod.string(),
+  "paymentTerms": zod.string(),
+  "expectedSettlementMonth": zod.string(),
+  "milestones": zod.array(zod.object({
+  "id": zod.string(),
+  "procurementId": zod.string(),
+  "dueDate": zod.string(),
+  "amount": zod.number(),
+  "isMilestonePayment": zod.boolean(),
+  "milestoneNumber": zod.number().optional(),
+  "milestoneDescription": zod.string().optional(),
+  "invoiceAmount": zod.number().optional(),
+  "invoiceNumber": zod.string().optional(),
+  "isVarianceDetected": zod.boolean(),
+  "varianceType": zod.string().optional(),
+  "varianceAmount": zod.number().optional(),
+  "varianceResolutionNotes": zod.string().optional(),
+  "dualSignoffAt": zod.string().optional(),
+  "paidAt": zod.string().optional(),
+  "paidAmount": zod.number().optional(),
+  "paymentReference": zod.string().optional(),
+  "threeWayMatch": zod.string().optional(),
+  "confirmationStatus": zod.string().optional(),
+  "confirmationNote": zod.string().optional(),
+  "confirmedAt": zod.string().optional()
+}))
+})),
+  "demoMode": zod.boolean()
+})
+
+
+/**
+ * @summary Submit an invoice for a vendor purchase order
+ */
+export const SubmitVendorPortalInvoiceParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+
+
+
+export const SubmitVendorPortalInvoiceHeader = zod.object({
+  "X-Vendor-API-Key": zod.string().min(1)
+})
+
+export const submitVendorPortalInvoiceBodyInvoiceAmountExclusiveMin = 0;
+
+
+
+
+export const SubmitVendorPortalInvoiceBody = zod.object({
+  "paymentScheduleId": zod.string(),
+  "invoiceAmount": zod.number().gt(submitVendorPortalInvoiceBodyInvoiceAmountExclusiveMin),
+  "invoiceDate": zod.string().optional(),
+  "invoiceNumber": zod.string().min(1)
+})
+
+export const SubmitVendorPortalInvoiceResponse = zod.object({
+  "id": zod.string(),
+  "procurementId": zod.string(),
+  "dueDate": zod.string(),
+  "amount": zod.number(),
+  "isMilestonePayment": zod.boolean(),
+  "milestoneNumber": zod.number().optional(),
+  "milestoneDescription": zod.string().optional(),
+  "invoiceAmount": zod.number().optional(),
+  "invoiceNumber": zod.string().optional(),
+  "isVarianceDetected": zod.boolean(),
+  "varianceType": zod.string().optional(),
+  "varianceAmount": zod.number().optional(),
+  "varianceResolutionNotes": zod.string().optional(),
+  "dualSignoffAt": zod.string().optional(),
+  "paidAt": zod.string().optional(),
+  "paidAmount": zod.number().optional(),
+  "paymentReference": zod.string().optional(),
+  "threeWayMatch": zod.string().optional(),
+  "confirmationStatus": zod.string().optional(),
+  "confirmationNote": zod.string().optional(),
+  "confirmedAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Confirm a project milestone for a vendor purchase order
+ */
+export const ConfirmVendorPortalMilestoneParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+
+
+
+export const ConfirmVendorPortalMilestoneHeader = zod.object({
+  "X-Vendor-API-Key": zod.string().min(1)
+})
+
+export const confirmVendorPortalMilestoneBodyConfirmationNoteMax = 500;
+
+
+
+export const ConfirmVendorPortalMilestoneBody = zod.object({
+  "confirmationNote": zod.string().max(confirmVendorPortalMilestoneBodyConfirmationNoteMax).optional()
+})
+
+export const ConfirmVendorPortalMilestoneResponse = zod.object({
+  "id": zod.string(),
+  "procurementId": zod.string(),
+  "dueDate": zod.string(),
+  "amount": zod.number(),
+  "isMilestonePayment": zod.boolean(),
+  "milestoneNumber": zod.number().optional(),
+  "milestoneDescription": zod.string().optional(),
+  "invoiceAmount": zod.number().optional(),
+  "invoiceNumber": zod.string().optional(),
+  "isVarianceDetected": zod.boolean(),
+  "varianceType": zod.string().optional(),
+  "varianceAmount": zod.number().optional(),
+  "varianceResolutionNotes": zod.string().optional(),
+  "dualSignoffAt": zod.string().optional(),
+  "paidAt": zod.string().optional(),
+  "paidAmount": zod.number().optional(),
+  "paymentReference": zod.string().optional(),
+  "threeWayMatch": zod.string().optional(),
+  "confirmationStatus": zod.string().optional(),
+  "confirmationNote": zod.string().optional(),
+  "confirmedAt": zod.string().optional()
 })
 
 
@@ -611,7 +838,8 @@ export const ListAuditLogsResponseItem = zod.object({
   "target": zod.string(),
   "timestamp": zod.string(),
   "region": zod.string(),
-  "deputy": zod.boolean()
+  "actedAsDeputy": zod.boolean(),
+  "deputy": zod.boolean().optional().describe('Legacy alias for actedAsDeputy')
 })
 export const ListAuditLogsResponse = zod.array(ListAuditLogsResponseItem)
 

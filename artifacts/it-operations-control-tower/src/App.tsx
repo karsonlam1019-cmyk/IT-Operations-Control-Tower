@@ -16,6 +16,9 @@ import {
   Command,
   Database,
   FileCheck2,
+  FileDown,
+  FileSpreadsheet,
+  FileText,
   Filter,
   Globe2,
   KeyRound,
@@ -43,6 +46,7 @@ import {
 } from 'lucide-react';
 import {
   getGetDashboardSummaryQueryKey,
+  getGetDelegationStatusQueryKey,
   getGetTreasuryAnalyticsQueryKey,
   getHealthCheckQueryKey,
   getListAuditLogsQueryKey,
@@ -55,6 +59,7 @@ import {
   useCreateProcurementRecord,
   useDualSignoff,
   useGetDashboardSummary,
+  useGetDelegationStatus,
   useGetTreasuryAnalytics,
   useHealthCheck,
   useListAuditLogs,
@@ -69,10 +74,12 @@ import {
   useSubmitProcurementReview,
   useToggleReleaseGate,
   useUpdateStaffStatus,
+  useUpdateHeadOfItLeave,
   type AuditLog,
   type BusinessUnitAllocation,
   type ComplianceAnswer,
   type DashboardSummary,
+  type DelegationStatus,
   type FxRate,
   type PaymentSchedule,
   type ProcurementRecord,
@@ -80,6 +87,8 @@ import {
   type StaffMember,
   type TreasuryAnalytics,
 } from '@workspace/api-client-react';
+import { jsPDF } from 'jspdf';
+import * as XLSX from 'xlsx';
 import { Toaster, toast } from 'sonner';
 import { Link, Route, Switch, useLocation, useSearch, Router as WouterRouter } from 'wouter';
 import { ErrorBoundary } from '@/components/error-boundary';
@@ -173,6 +182,163 @@ function formatDate(value?: string) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
+function exportDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function csvCell(value: string | number) {
+  const cell = String(value);
+  return /[",\r\n]/.test(cell) ? `"${cell.replace(/"/g, '""')}"` : cell;
+}
+
+function downloadBlob(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function treasuryExportRows(data: TreasuryAnalytics): Array<Array<string | number>> {
+  return [
+    ['TREASURY OVERVIEW'],
+    ['Generated', new Date().toLocaleString()],
+    [],
+    ['SUMMARY'],
+    ['Metric', 'Value', 'Unit'],
+    ['YTD deployed', data.totalYtd, 'HKD'],
+    ['Variance rate', data.varianceRate, '%'],
+    [],
+    ['MONTHLY PAYMENTS'],
+    ['Month', 'Paid', 'Committed', 'Currency'],
+    ...data.monthlyPayments.map(item => [item.month, item.paid, item.committed, 'HKD']),
+    [],
+    ['BUSINESS UNIT ALLOCATION'],
+    ['Business unit', 'Value', 'Currency'],
+    ...data.businessUnits.map(item => [item.name, item.value, 'HKD']),
+    [],
+    ['FX REFERENCE RATES'],
+    ['Currency', 'Rate', 'Delta %'],
+    ...data.fxRates.map(item => [item.currency, item.rate, item.delta]),
+  ];
+}
+
+function exportTreasuryCsv(data: TreasuryAnalytics) {
+  const csv = treasuryExportRows(data)
+    .map(row => row.map(csvCell).join(','))
+    .join('\r\n');
+  downloadBlob(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' }), `treasury-overview-${exportDate()}.csv`);
+}
+
+function exportTreasuryExcel(data: TreasuryAnalytics) {
+  const workbook = XLSX.utils.book_new();
+  const summarySheet = XLSX.utils.aoa_to_sheet([
+    ['Treasury overview'],
+    ['Generated', new Date().toLocaleString()],
+    [],
+    ['Metric', 'Value', 'Unit'],
+    ['YTD deployed', data.totalYtd, 'HKD'],
+    ['Variance rate', data.varianceRate, '%'],
+  ]);
+  const paymentsSheet = XLSX.utils.json_to_sheet(data.monthlyPayments.map(item => ({
+    Month: item.month,
+    Paid: item.paid,
+    Committed: item.committed,
+    Currency: 'HKD',
+  })));
+  const allocationsSheet = XLSX.utils.json_to_sheet(data.businessUnits.map(item => ({
+    'Business unit': item.name,
+    Value: item.value,
+    Currency: 'HKD',
+  })));
+  const fxSheet = XLSX.utils.json_to_sheet(data.fxRates.map(item => ({
+    Currency: item.currency,
+    Rate: item.rate,
+    'Delta %': item.delta,
+  })));
+
+  summarySheet['!cols'] = [{ wch: 24 }, { wch: 18 }, { wch: 12 }];
+  paymentsSheet['!cols'] = [{ wch: 14 }, { wch: 16 }, { wch: 16 }, { wch: 12 }];
+  allocationsSheet['!cols'] = [{ wch: 24 }, { wch: 18 }, { wch: 12 }];
+  fxSheet['!cols'] = [{ wch: 14 }, { wch: 14 }, { wch: 14 }];
+
+  XLSX.utils.book_append_sheet(workbook, summarySheet, 'Summary');
+  XLSX.utils.book_append_sheet(workbook, paymentsSheet, 'Monthly Payments');
+  XLSX.utils.book_append_sheet(workbook, allocationsSheet, 'Business Units');
+  XLSX.utils.book_append_sheet(workbook, fxSheet, 'FX Rates');
+  XLSX.writeFile(workbook, `treasury-overview-${exportDate()}.xlsx`);
+}
+
+function exportTreasuryPdf(data: TreasuryAnalytics) {
+  const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
+  const margin = 42;
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const contentWidth = pageWidth - margin * 2;
+  let y = 48;
+
+  const addText = (text: string, options: { size?: number; bold?: boolean; color?: [number, number, number]; gap?: number } = {}) => {
+    const size = options.size ?? 9;
+    const lineHeight = size + 5;
+    pdf.setFont('helvetica', options.bold ? 'bold' : 'normal');
+    pdf.setFontSize(size);
+    pdf.setTextColor(...(options.color ?? [35, 48, 62]));
+    const lines = pdf.splitTextToSize(text, contentWidth) as string[];
+    if (y + lines.length * lineHeight > pageHeight - margin) {
+      pdf.addPage();
+      y = margin;
+    }
+    pdf.text(lines, margin, y);
+    y += lines.length * lineHeight + (options.gap ?? 0);
+  };
+
+  const addSection = (title: string) => {
+    if (y > pageHeight - 100) {
+      pdf.addPage();
+      y = margin;
+    }
+    y += 8;
+    addText(title.toUpperCase(), { size: 9, bold: true, color: [27, 117, 113], gap: 5 });
+  };
+
+  pdf.setProperties({ title: 'Treasury Overview', subject: 'Treasury analytics export' });
+  addText('TREASURY OVERVIEW', { size: 20, bold: true, color: [30, 50, 64], gap: 4 });
+  addText(`Generated ${new Date().toLocaleString()} · Base currency HKD`, { size: 8, color: [99, 110, 120], gap: 12 });
+
+  addSection('Summary');
+  addText(`YTD deployed: ${formatMoney(data.totalYtd, 'HKD')}    Variance rate: ${data.varianceRate}%`, { size: 10, bold: true, gap: 3 });
+
+  addSection('Monthly payments');
+  addText('Month                         Paid                 Committed', { size: 8, bold: true, color: [99, 110, 120], gap: 3 });
+  data.monthlyPayments.forEach(item => addText(
+    `${item.month.padEnd(28)}${formatMoney(item.paid, 'HKD').padStart(18)}${formatMoney(item.committed, 'HKD').padStart(22)}`,
+    { size: 8, gap: 1 },
+  ));
+
+  addSection('Business unit allocation');
+  data.businessUnits.forEach(item => addText(`${item.name.padEnd(28)}${formatMoney(item.value, 'HKD')}`, { size: 8, gap: 1 }));
+
+  addSection('FX reference rates');
+  addText('Currency                  Rate                 Delta', { size: 8, bold: true, color: [99, 110, 120], gap: 3 });
+  data.fxRates.forEach(item => addText(
+    `${item.currency.padEnd(26)}${item.rate.toFixed(4).padEnd(20)}${item.delta >= 0 ? '+' : ''}${item.delta.toFixed(2)}%`,
+    { size: 8, gap: 1 },
+  ));
+
+  const pageCount = pdf.getNumberOfPages();
+  for (let page = 1; page <= pageCount; page += 1) {
+    pdf.setPage(page);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(7);
+    pdf.setTextColor(130, 140, 148);
+    pdf.text(`Orbital IT Operations · Treasury export · ${page} / ${pageCount}`, margin, pageHeight - 20);
+  }
+  pdf.save(`treasury-overview-${exportDate()}.pdf`);
+}
+
 function statusTone(status = '') {
   const normalized = status.toLowerCase();
   if (normalized.includes('active') || normalized.includes('approved') || normalized.includes('ready') || normalized.includes('pass') || normalized.includes('paid')) return 'status-positive';
@@ -215,57 +381,109 @@ function SectionHeading({ eyebrow, title, action }: { eyebrow?: string; title: s
 
 function GlobalSearch() {
   const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
   const [, setLocation] = useLocation();
-  const inputRef = useRef<HTMLInputElement>(null);
+  const popupInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
-        inputRef.current?.focus();
+        setOpen(true);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  useEffect(() => {
+    if (!open) return;
+    const frame = requestAnimationFrame(() => popupInputRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [open]);
+
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (query.trim()) {
       setLocation(`/compliance?q=${encodeURIComponent(query.trim())}`);
       setQuery('');
-      inputRef.current?.blur();
+      setOpen(false);
     }
   };
 
   return (
-    <form className="deepseek-search" onSubmit={handleSearch}>
-      <Search size={14} />
-      <input 
-        ref={inputRef}
-        value={query} 
-        onChange={e => setQuery(e.target.value)} 
-        placeholder="DeepSeek AI search..." 
-        data-testid="input-global-search"
-      />
-      <kbd>⌘K</kbd>
-    </form>
+    <>
+      <button className="deepseek-search" type="button" onClick={() => setOpen(true)} aria-label="Open AI search" data-testid="button-global-search">
+        <Search size={14} />
+        <span>DeepSeek AI search...</span>
+        <kbd>⌘K</kbd>
+      </button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="global-search-dialog">
+          <DialogHeader>
+            <DialogTitle><Sparkles size={17} /> Ask Orbital AI</DialogTitle>
+            <DialogDescription>Search internal policy and operational guidance with cited answers.</DialogDescription>
+          </DialogHeader>
+          <form className="global-search-form" onSubmit={handleSearch}>
+            <Search size={17} />
+            <input
+              ref={popupInputRef}
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="What decision are you making?"
+              data-testid="input-global-search"
+            />
+            <kbd>Enter</kbd>
+          </form>
+          <div className="global-search-quick">
+            <span>Try a question</span>
+            {[
+              'What are the approval controls for production access?',
+              'When is a vendor security review required?',
+              'What evidence is needed for release handover?',
+            ].map(prompt => (
+              <button type="button" key={prompt} onClick={() => setQuery(prompt)}>{prompt}</button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
-function DeputyToggle() {
-  const [active, setActive] = useState(false);
+function DeputyToggle({ status, loading }: { status?: DelegationStatus; loading: boolean }) {
+  const active = Boolean(status?.delegationActive);
+  const client = useQueryClient();
+  const updateLeave = useUpdateHeadOfItLeave();
+
+  const toggle = () => {
+    if (!status || updateLeave.isPending) return;
+    updateLeave.mutate({ data: { onLeave: !active } }, {
+      onSuccess: () => {
+        void client.invalidateQueries({ queryKey: getGetDelegationStatusQueryKey() });
+        void client.invalidateQueries({ queryKey: getListAuditLogsQueryKey() });
+        toast.success(!active ? 'Deputy Mode enabled' : 'Deputy Mode disabled');
+      },
+      onError: () => toast.error('Could not update Deputy Mode'),
+    });
+  };
+
   return (
-    <button 
+    <button
       className={`deputy-toggle ${active ? 'deputy-active' : ''}`}
-      onClick={() => {
-        setActive(!active);
-        toast.success(active ? 'Deputy mode disabled' : 'Deputy mode scheduled: Active');
-      }}
-      title="Scheduled Deputy Mode"
+      type="button"
+      role="switch"
+      aria-checked={active}
+      aria-label="Deputy Mode"
+      onClick={toggle}
+      disabled={loading || !status || updateLeave.isPending}
+      title={active ? `${status?.deputy?.name} is acting as Deputy Head of IT` : 'Enable Deputy Mode to activate delegated authority'}
       data-testid="button-deputy-toggle"
     >
-      <UserRound size={14} /> {active ? 'Deputy On' : 'Deputy Off'}
+      <UserRound size={14} />
+      <span className="deputy-toggle-label">Deputy Mode</span>
+      <span className="deputy-switch" aria-hidden="true"><i /></span>
+      <strong>{loading ? '…' : active ? 'On' : 'Off'}</strong>
     </button>
   );
 }
@@ -303,6 +521,13 @@ function IntegrationPulse() {
 function Shell({ children }: { children: ReactNode }) {
   const [location] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const delegationQuery = useGetDelegationStatus({
+    query: { queryKey: getGetDelegationStatusQueryKey(), refetchInterval: 15000 },
+  });
+  const delegation = delegationQuery.data as DelegationStatus | undefined;
+  const activePerson = delegation?.delegationActive && delegation.deputy
+    ? delegation.deputy
+    : delegation?.headOfIt;
   const meta = pageMeta[location] ?? pageMeta['/'];
   return <div className="app-shell min-h-[100dvh]">
     <aside className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`}>
@@ -326,7 +551,7 @@ function Shell({ children }: { children: ReactNode }) {
       </nav>
       <div className="sidebar-lower">
         <IntegrationPulse />
-        <button className="profile-row" data-testid="button-profile"><span className="avatar avatar-lime">LC</span><span><strong>Leah Chan</strong><small>Head of IT</small></span><MoreHorizontal size={16} /></button>
+        <button className="profile-row" data-testid="button-profile"><span className="avatar avatar-lime">{activePerson?.name.split(' ').map(part => part[0]).slice(0, 2).join('') || 'LC'}</span><span><strong>{activePerson?.name || 'Leah Chan'}</strong><small>{delegation?.delegationActive ? 'Acting Deputy Head of IT' : 'Head of IT'}</small></span><MoreHorizontal size={16} /></button>
       </div>
     </aside>
     {mobileOpen && <button className="mobile-scrim" onClick={() => setMobileOpen(false)} aria-label="Close navigation" data-testid="button-scrim" />}
@@ -340,12 +565,12 @@ function Shell({ children }: { children: ReactNode }) {
           <GlobalSearch />
         </div>
         <div className="topbar-actions">
-          <DeputyToggle />
+          <DeputyToggle status={delegation} loading={delegationQuery.isLoading} />
           <div className="sync-status"><span className="signal-dot" /> Live <span className="font-mono">09:42:18</span></div>
           <button className="icon-button notification-button" aria-label="Notifications" data-testid="button-notifications"><Bell size={17} /><i /></button>
           <div className="topbar-profile">
-            <span className="role-badge" data-testid="text-role-badge">Head of IT</span>
-            <div className="top-avatar avatar">LC</div>
+            <span className="role-badge" data-testid="text-role-badge">{delegation?.delegationActive ? 'Deputy Head of IT' : 'Head of IT'}</span>
+            <div className="top-avatar avatar">{activePerson?.name.split(' ').map(part => part[0]).slice(0, 2).join('') || 'LC'}</div>
           </div>
         </div>
       </header>
@@ -426,7 +651,11 @@ function JiraQueueSection() {
 
 function StaffPage() {
   const query = useListStaff({ query: { queryKey: getListStaffQueryKey(), refetchInterval: 15000 } });
+  const delegationQuery = useGetDelegationStatus({
+    query: { queryKey: getGetDelegationStatusQueryKey(), refetchInterval: 15000 },
+  });
   const update = useUpdateStaffStatus();
+  const updateLeave = useUpdateHeadOfItLeave();
   const client = useQueryClient();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('All');
@@ -443,7 +672,36 @@ function StaffPage() {
       onError: () => toast.error('Status update failed'),
     });
   };
+  const delegation = delegationQuery.data as DelegationStatus | undefined;
+  const changeHeadLeave = () => {
+    if (!delegation) return;
+    const onLeave = !delegation.headOfIt.onLeave;
+    updateLeave.mutate({ data: { onLeave } }, {
+      onSuccess: () => {
+        void client.invalidateQueries({ queryKey: getGetDelegationStatusQueryKey() });
+        void client.invalidateQueries({ queryKey: getListAuditLogsQueryKey() });
+        toast.success(onLeave ? 'Deputy authority activated automatically' : 'Direct Head of IT authority restored');
+      },
+      onError: () => toast.error('Could not update Head of IT leave status'),
+    });
+  };
   return <div className="page-stack">
+    <section className={`panel delegation-panel ${delegation?.delegationActive ? 'delegation-panel-active' : ''}`} data-testid="panel-delegation-status">
+      <div className="delegation-summary">
+        <span className={`posture-icon ${delegation?.delegationActive ? 'delegation-icon-active' : ''}`}><ShieldCheck size={18} /></span>
+        <div><span className="eyebrow">Authority coverage</span><h2>{delegation?.delegationActive ? 'Deputy authority is active' : 'Head of IT is available'}</h2><p>{delegation?.delegationActive
+          ? `${delegation.deputy?.name || 'The configured deputy'} now holds delegated Head of IT rights. Privileged actions are audited as deputy actions.`
+          : `${delegation?.headOfIt.name || 'The Head of IT'} retains direct authority. The configured deputy activates automatically when leave starts.`}</p></div>
+      </div>
+      <div className="delegation-people">
+        <div><span>Head of IT</span><strong>{delegation?.headOfIt.name || 'Loading…'}</strong><small>{delegation?.headOfIt.onLeave ? 'On leave' : 'Available'}</small></div>
+        <ChevronRight size={16} />
+        <div><span>Configured deputy</span><strong>{delegation?.deputy?.name || 'Not assigned'}</strong><small>{delegation?.delegationActive ? 'Authority active' : 'Standby'}</small></div>
+      </div>
+      <button className={`button ${delegation?.headOfIt.onLeave ? 'button-outline' : 'button-primary'}`} onClick={changeHeadLeave} disabled={!delegation || updateLeave.isPending} data-testid="button-toggle-head-leave">
+        {updateLeave.isPending ? 'Updating…' : delegation?.headOfIt.onLeave ? 'Return from leave' : 'Mark Head of IT on leave'}
+      </button>
+    </section>
     <div className="toolbar panel"><div className="search-field"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search people, teams, regions" data-testid="input-search-staff" /></div><div className="filter-group"><Filter size={14} /><select value={status} onChange={e => setStatus(e.target.value)} data-testid="select-staff-status">{statuses.map(value => <option value={value} key={value}>{value}</option>)}</select></div><span className="toolbar-count font-mono">{filtered.length} / {staff.length} visible</span></div>
     <section className="panel">
       <SectionHeading eyebrow="Coverage board" title="Shift signal" action={<div className="legend"><span><i className="legend-dot live" /> Live</span><span><i className="legend-dot stale" /> Stale</span></div>} />
@@ -509,7 +767,30 @@ function FxList({ data }: { data: FxRate[] }) {
 function TreasuryPage() {
   const query = useGetTreasuryAnalytics({ query: { queryKey: getGetTreasuryAnalyticsQueryKey(), refetchInterval: 60000 } });
   const data = query.data as TreasuryAnalytics | undefined;
+  const [activeExport, setActiveExport] = useState<string | null>(null);
+  const handleExport = (format: 'csv' | 'excel' | 'pdf') => {
+    if (!data) return;
+    setActiveExport(format);
+    try {
+      if (format === 'csv') exportTreasuryCsv(data);
+      if (format === 'excel') exportTreasuryExcel(data);
+      if (format === 'pdf') exportTreasuryPdf(data);
+      toast.success(`${format === 'csv' ? 'CSV' : format === 'excel' ? 'Excel' : 'PDF'} export downloaded`);
+    } catch {
+      toast.error('Export failed. Please try again.');
+    } finally {
+      setActiveExport(null);
+    }
+  };
   return <div className="page-stack">{query.isError && <ErrorState onRetry={() => void query.refetch()} />}{query.isLoading ? <LoadingRows count={4} /> : data ? <>
+    <div className="treasury-export-bar panel">
+      <div><span className="eyebrow">Reporting</span><strong>Download treasury view</strong><small>Exports include the current mock analytics snapshot.</small></div>
+      <div className="treasury-export-actions">
+        <button className="button button-outline export-button" onClick={() => handleExport('csv')} disabled={activeExport !== null} data-testid="button-export-csv"><FileDown size={14} /> {activeExport === 'csv' ? 'Preparing…' : 'Export CSV'}</button>
+        <button className="button button-outline export-button" onClick={() => handleExport('excel')} disabled={activeExport !== null} data-testid="button-export-excel"><FileSpreadsheet size={14} /> {activeExport === 'excel' ? 'Preparing…' : 'Export Excel'}</button>
+        <button className="button button-primary export-button" onClick={() => handleExport('pdf')} disabled={activeExport !== null} data-testid="button-export-pdf"><FileText size={14} /> {activeExport === 'pdf' ? 'Preparing…' : 'Export PDF'}</button>
+      </div>
+    </div>
     <div className="treasury-kpis"><div className="treasury-total"><span className="eyebrow">YTD deployed</span><strong>{formatMoney(data.totalYtd, 'HKD')}</strong><small><span className="delta-up"><ArrowUpRight size={13} /> 8.4%</span> versus plan</small></div><div className="mini-metric"><span>Variance rate</span><strong>{data.varianceRate}%</strong><small>Within monitored tolerance</small></div><div className="mini-metric"><span>Payment cycles</span><strong>{data.monthlyPayments.length}</strong><small>Periods reported</small></div></div>
     <div className="treasury-grid"><section className="panel"><SectionHeading eyebrow="Cash movement" title="Paid vs committed" action={<div className="legend"><span><i className="legend-dot paid" /> Paid</span><span><i className="legend-dot committed" /> Committed</span></div>} /><PaymentChart data={data.monthlyPayments} /></section><section className="panel"><SectionHeading eyebrow="Cost allocation" title="Business units" /><AllocationList data={data.businessUnits} /></section></div>
     <section className="panel"><SectionHeading eyebrow="Market watch" title="FX reference rates" action={<span className="muted-label">Base currency HKD</span>} /><FxList data={data.fxRates} /></section>
@@ -557,11 +838,19 @@ function CompliancePage() {
 
 function AdminPage() {
   const query = useListAuditLogs({ query: { queryKey: getListAuditLogsQueryKey(), refetchInterval: 30000 } });
+  const delegationQuery = useGetDelegationStatus({ query: { queryKey: getGetDelegationStatusQueryKey() } });
   const [search, setSearch] = useState('');
+  const [authority, setAuthority] = useState('All');
   const logs = (query.data as AuditLog[] | undefined) ?? [];
-  const filtered = logs.filter(log => `${log.actor} ${log.action} ${log.target} ${log.region}`.toLowerCase().includes(search.toLowerCase()));
-  return <div className="page-stack"><div className="admin-cards"><div className="access-posture panel"><div className="posture-icon"><KeyRound size={18} /></div><div><span className="eyebrow">Access posture</span><h2>Controlled</h2><p>All privileged actions require named ownership.</p></div><StatusPill value="Monitored" /></div><div className="mini-metric"><span>Audit entries</span><strong>{formatNumber(logs.length)}</strong><small>Immutable records loaded</small></div><div className="mini-metric"><span>Deputy actions</span><strong>{formatNumber(logs.filter(log => log.deputy).length)}</strong><small>Acting on delegated authority</small></div></div>
-    <section className="panel"><div className="toolbar-inner"><div><SectionHeading eyebrow="Governance" title="Immutable audit log" /></div><div className="search-field"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search actor, action, target" data-testid="input-search-audit" /><SlidersHorizontal size={15} /></div></div>{query.isError ? <ErrorState onRetry={() => void query.refetch()} /> : query.isLoading ? <LoadingRows count={6} /> : !filtered.length ? <EmptyState title={logs.length ? 'No matching events' : 'No audit events'} detail={logs.length ? 'Try another actor, action, or target.' : 'Immutable events will appear when administrative activity is recorded.'} icon={LockKeyhole} /> : <div className="audit-table"><div className="table-head audit-head"><span>Actor</span><span>Action</span><span>Target</span><span>Region</span><span>Timestamp</span><span>Authority</span></div>{filtered.map(log => <div className="table-row audit-row" key={log.id} data-testid={`row-audit-${log.id}`}><span className="person-cell"><span className="avatar">{log.actor.split(' ').map(n => n[0]).slice(0, 2).join('')}</span><b>{log.actor}</b></span><span><StatusPill value={log.action} /></span><span className="font-mono">{log.target}</span><span>{log.region}</span><span className="font-mono">{formatDate(log.timestamp)} {formatTime(log.timestamp)}</span><span>{log.deputy ? <span className="deputy"><UserRound size={13} /> Deputy</span> : <span className="muted-label">Direct</span>}</span></div>)}</div>}</section></div>;
+  const isDeputyAction = (log: AuditLog) => log.actedAsDeputy || Boolean(log.deputy);
+  const filtered = logs.filter(log => {
+    const searchMatch = `${log.actor} ${log.action} ${log.target} ${log.region}`.toLowerCase().includes(search.toLowerCase());
+    const authorityMatch = authority === 'All' || (authority === 'Deputy' ? isDeputyAction(log) : !isDeputyAction(log));
+    return searchMatch && authorityMatch;
+  });
+  const currentDelegation = delegationQuery.data as DelegationStatus | undefined;
+  return <div className="page-stack"><div className="admin-cards"><div className="access-posture panel"><div className="posture-icon"><KeyRound size={18} /></div><div><span className="eyebrow">Super Admin audit viewer</span><h2>Controlled</h2><p>{currentDelegation?.authorityLabel || 'All privileged actions require named ownership.'}</p></div><StatusPill value={currentDelegation?.delegationActive ? 'Deputy active' : 'Direct authority'} /></div><div className="mini-metric"><span>Audit entries</span><strong>{formatNumber(logs.length)}</strong><small>Immutable records loaded</small></div><div className="mini-metric"><span>Deputy actions</span><strong>{formatNumber(logs.filter(isDeputyAction).length)}</strong><small>Acting on delegated authority</small></div></div>
+    <section className="panel"><div className="toolbar-inner"><div><SectionHeading eyebrow="Governance" title="System activity log" /></div><div className="audit-filters"><div className="search-field"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search actor, action, target" data-testid="input-search-audit" /></div><div className="filter-group"><SlidersHorizontal size={15} /><select value={authority} onChange={event => setAuthority(event.target.value)} data-testid="select-audit-authority"><option>All</option><option>Direct</option><option>Deputy</option></select></div></div></div>{query.isError ? <ErrorState onRetry={() => void query.refetch()} /> : query.isLoading ? <LoadingRows count={6} /> : !filtered.length ? <EmptyState title={logs.length ? 'No matching events' : 'No audit events'} detail={logs.length ? 'Try another actor, action, target, or authority filter.' : 'Immutable events will appear when administrative activity is recorded.'} icon={LockKeyhole} /> : <div className="audit-table"><div className="table-head audit-head"><span>Actor</span><span>Action</span><span>Target</span><span>Region</span><span>Timestamp</span><span>Authority</span></div>{filtered.map(log => <div className="table-row audit-row" key={log.id} data-testid={`row-audit-${log.id}`}><span className="person-cell"><span className="avatar">{log.actor.split(' ').map(n => n[0]).slice(0, 2).join('')}</span><b>{log.actor}</b></span><span><StatusPill value={log.action.replaceAll('_', ' ')} /></span><span className="font-mono">{log.target}</span><span>{log.region}</span><span className="font-mono">{formatDate(log.timestamp)} {formatTime(log.timestamp)}</span><span>{isDeputyAction(log) ? <span className="deputy"><UserRound size={13} /> Deputy</span> : <span className="muted-label">Direct</span>}</span></div>)}</div>}</section></div>;
 }
 
 function RoutedErrorBoundary({ children }: { children: ReactNode }) {
@@ -569,7 +858,15 @@ function RoutedErrorBoundary({ children }: { children: ReactNode }) {
   return <ErrorBoundary resetKey={location}>{children}</ErrorBoundary>;
 }
 
+import { VendorPortal } from '@/vendor-portal';
+
 function Router() {
+  const [location] = useLocation();
+
+  if (location.startsWith('/vendor-portal')) {
+    return <RoutedErrorBoundary><Switch><Route path="/vendor-portal" component={VendorPortal} /></Switch></RoutedErrorBoundary>;
+  }
+
   return <Shell><RoutedErrorBoundary><Switch>
     <Route path="/" component={DashboardPage} />
     <Route path="/staff" component={StaffPage} />

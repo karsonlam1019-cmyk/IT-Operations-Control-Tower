@@ -1,13 +1,69 @@
 import { readEnv, type IntegrationStatus } from "./config";
+import { timingSafeEqual } from "node:crypto";
 
 export type VendorConfig = {
   publicKey: string;
+  portalApiKey: string;
+  portalVendorId: string;
+  portalVendorName: string;
+  portalVendorRegion: string;
+  portalVendorContact: string;
 };
 
 export function getVendorConfig(): Partial<VendorConfig> {
   return {
     publicKey: readEnv("VENDOR_PUBLIC_KEY"),
+    portalApiKey: readEnv("VENDOR_PORTAL_API_KEY"),
+    portalVendorId: readEnv("VENDOR_PORTAL_VENDOR_ID"),
+    portalVendorName: readEnv("VENDOR_PORTAL_VENDOR_NAME"),
+    portalVendorRegion: readEnv("VENDOR_PORTAL_VENDOR_REGION"),
+    portalVendorContact: readEnv("VENDOR_PORTAL_VENDOR_CONTACT"),
   };
+}
+
+export const DEMO_VENDOR_PORTAL_KEY = "vp_demo_meridian_2026";
+
+export type VendorPortalIdentity = {
+  id: string;
+  name: string;
+  region: string;
+  contact: string;
+  demoMode: boolean;
+};
+
+const DEMO_VENDOR: VendorPortalIdentity = {
+  id: "v-demo-nimbus",
+  name: "Nimbus Cloud Services",
+  region: "HK",
+  contact: "accounts@nimbus.example",
+  demoMode: true,
+};
+
+function keysMatch(candidate: string, expected: string): boolean {
+  const candidateBuffer = Buffer.from(candidate);
+  const expectedBuffer = Buffer.from(expected);
+  return (
+    candidateBuffer.length === expectedBuffer.length
+    && timingSafeEqual(candidateBuffer, expectedBuffer)
+  );
+}
+
+export function resolveVendorPortalIdentity(apiKey?: string): VendorPortalIdentity | null {
+  const candidate = apiKey?.trim();
+  if (!candidate) return null;
+
+  const config = getVendorConfig();
+  if (config.portalApiKey && keysMatch(candidate, config.portalApiKey)) {
+    return {
+      id: config.portalVendorId ?? DEMO_VENDOR.id,
+      name: config.portalVendorName ?? DEMO_VENDOR.name,
+      region: config.portalVendorRegion ?? DEMO_VENDOR.region,
+      contact: config.portalVendorContact ?? DEMO_VENDOR.contact,
+      demoMode: false,
+    };
+  }
+
+  return keysMatch(candidate, DEMO_VENDOR_PORTAL_KEY) ? { ...DEMO_VENDOR } : null;
 }
 
 export type VendorSubmission = {
@@ -54,4 +110,5 @@ export const vendor = {
   isConfigured: isVendorConfigured,
   health: checkVendorHealth,
   listSubmissions: listVendorSubmissions,
+  resolvePortalIdentity: resolveVendorPortalIdentity,
 };

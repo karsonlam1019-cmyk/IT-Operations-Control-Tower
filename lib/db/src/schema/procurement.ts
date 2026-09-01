@@ -120,6 +120,8 @@ export const paymentSchedules = pgTable(
     milestoneNumber: integer("milestone_number"),
     milestoneDescription: text("milestone_description"),
     isMilestonePayment: boolean("is_milestone_payment").default(false),
+    vendorConfirmationNote: text("vendor_confirmation_note"),
+    vendorConfirmedAt: timestamp("vendor_confirmed_at", { withTimezone: true }),
     // OCR Invoice Processing
     ocrInvoiceData: jsonb("ocr_invoice_data"),
     invoiceAmount: numeric("invoice_amount", { precision: 15, scale: 2 }),

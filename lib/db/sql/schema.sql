@@ -179,6 +179,8 @@ CREATE TABLE payment_schedules (
     milestone_number INT,                   -- 1, 2, 3 for 3:4:3
     milestone_description TEXT,             -- e.g., 'Design complete', 'UAT sign-off', 'Go-live'
     is_milestone_payment BOOLEAN DEFAULT FALSE,
+    vendor_confirmation_note TEXT,
+    vendor_confirmed_at TIMESTAMPTZ,
     -- OCR Invoice Processing
     ocr_invoice_data JSONB,                 -- extracted invoice data from OCR
     invoice_amount NUMERIC(15, 2),          -- amount on vendor invoice (for 3-way match)
@@ -451,14 +453,27 @@ GRANT EXECUTE ON FUNCTION match_knowledge_base(vector, float, int) TO anon, auth
 -- =====================================================================
 CREATE OR REPLACE FUNCTION activate_deputy_on_leave()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
+DECLARE
+  linked_deputy_id UUID;
 BEGIN
-  IF NEW.on_leave = TRUE AND OLD.on_leave = FALSE THEN
-    -- mark the linked deputy as a delegated authority holder
-    UPDATE profiles
-       SET role = 'DEPUTY_HEAD_OF_IT'
-     WHERE id = NEW.deputy_for_user_id;
+  IF NEW.role <> 'SUPER_ADMIN' THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT id INTO linked_deputy_id
+    FROM profiles
+   WHERE deputy_for_user_id = NEW.id
+     AND role = 'DEPUTY_HEAD_OF_IT'
+     AND COALESCE(on_leave, FALSE) = FALSE
+   ORDER BY created_at
+   LIMIT 1;
+
+  IF NEW.on_leave = TRUE AND OLD.on_leave = FALSE AND linked_deputy_id IS NOT NULL THEN
     INSERT INTO audit_logs (actor_id, action_type, target_resource, new_value, acted_as_deputy)
-    VALUES (NEW.id, 'DEPUTY_ACTIVATED', 'profiles', jsonb_build_object('deputy', NEW.deputy_for_user_id), NEW.deputy_for_user_id IS NOT NULL);
+    VALUES (linked_deputy_id, 'DEPUTY_ACTIVATED', 'Head of IT role', jsonb_build_object('deputy', linked_deputy_id), TRUE);
+  ELSIF NEW.on_leave = FALSE AND OLD.on_leave = TRUE AND linked_deputy_id IS NOT NULL THEN
+    INSERT INTO audit_logs (actor_id, action_type, target_resource, new_value, acted_as_deputy)
+    VALUES (NEW.id, 'DEPUTY_DEACTIVATED', 'Head of IT role', jsonb_build_object('deputy', linked_deputy_id), FALSE);
   END IF;
   RETURN NEW;
 END;

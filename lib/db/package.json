@@ -11,6 +11,7 @@
     "push": "drizzle-kit push --config ./drizzle.config.ts",
     "push-force": "drizzle-kit push --force --config ./drizzle.config.ts",
     "migrate": "node ./migrate.mjs",
+    "migrate:forward": "node ./migrate.mjs --forward",
     "migrate:reset": "node ./migrate.mjs --reset"
   },
   "dependencies": {

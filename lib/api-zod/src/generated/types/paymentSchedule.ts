@@ -25,4 +25,7 @@ export interface PaymentSchedule {
   paidAmount?: number;
   paymentReference?: string;
   threeWayMatch?: string;
+  confirmationStatus?: string;
+  confirmationNote?: string;
+  confirmedAt?: string;
 }

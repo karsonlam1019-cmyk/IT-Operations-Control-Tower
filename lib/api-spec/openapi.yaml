@@ -76,6 +76,42 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StaffMember"
+  /governance/delegation:
+    get:
+      operationId: getDelegationStatus
+      tags: [operations]
+      summary: Get the active Head of IT delegation
+      responses:
+        "200":
+          description: Current Head of IT and deputy authority
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DelegationStatus"
+  /governance/delegation/leave:
+    patch:
+      operationId: updateHeadOfItLeave
+      tags: [operations]
+      summary: Mark the Head of IT on or off leave
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HeadOfItLeaveUpdate"
+      responses:
+        "200":
+          description: Updated delegation authority
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DelegationStatus"
+        "409":
+          description: Leave status could not be changed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /release-gates:
     get:
       operationId: listReleaseGates
@@ -419,6 +455,134 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /vendor/portal/session:
+    get:
+      operationId: getVendorPortalSession
+      tags: [operations]
+      summary: Authenticate a vendor and list its purchase orders
+      description: Resolves the vendor from the X-Vendor-API-Key header and returns only that vendor's purchase orders and payment milestones.
+      parameters:
+        - name: X-Vendor-API-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        "200":
+          description: Authenticated vendor workspace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VendorPortalSession"
+        "401":
+          description: Invalid or missing vendor API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /vendor/portal/purchase-orders/{id}/invoices:
+    post:
+      operationId: submitVendorPortalInvoice
+      tags: [operations]
+      summary: Submit an invoice for a vendor purchase order
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: X-Vendor-API-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VendorPortalInvoiceInput"
+      responses:
+        "200":
+          description: Updated invoice payment schedule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentSchedule"
+        "400":
+          description: Invalid invoice details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Invalid or missing vendor API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Purchase order is outside the vendor scope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Invoice cannot be submitted for this milestone
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /vendor/portal/milestones/{id}/confirm:
+    patch:
+      operationId: confirmVendorPortalMilestone
+      tags: [operations]
+      summary: Confirm a project milestone for a vendor purchase order
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: X-Vendor-API-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VendorPortalMilestoneConfirmationInput"
+      responses:
+        "200":
+          description: Confirmed payment milestone
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentSchedule"
+        "401":
+          description: Invalid or missing vendor API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Milestone is outside the vendor scope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Milestone cannot be confirmed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /budget/summary:
     get:
       operationId: getBudgetSummary
@@ -606,6 +770,59 @@ components:
         status: { type: string }
         match: { type: string }
         createdAt: { type: string }
+    VendorPortalVendor:
+      type: object
+      required: [id, name, region, contact]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        region: { type: string }
+        contact: { type: string }
+    VendorPortalPurchaseOrder:
+      type: object
+      required: [id, prNumber, poNumber, vendor, region, amount, currency, hkdAmount, status, match, createdAt, projectCode, paymentTerms, expectedSettlementMonth, milestones]
+      properties:
+        id: { type: string }
+        prNumber: { type: string }
+        poNumber: { type: string }
+        vendor: { type: string }
+        region: { type: string }
+        amount: { type: number }
+        currency: { type: string }
+        hkdAmount: { type: number }
+        status: { type: string }
+        match: { type: string }
+        createdAt: { type: string }
+        projectCode: { type: string }
+        paymentTerms: { type: string }
+        expectedSettlementMonth: { type: string }
+        milestones:
+          type: array
+          items:
+            $ref: "#/components/schemas/PaymentSchedule"
+    VendorPortalSession:
+      type: object
+      required: [vendor, purchaseOrders, demoMode]
+      properties:
+        vendor:
+          $ref: "#/components/schemas/VendorPortalVendor"
+        purchaseOrders:
+          type: array
+          items:
+            $ref: "#/components/schemas/VendorPortalPurchaseOrder"
+        demoMode: { type: boolean }
+    VendorPortalInvoiceInput:
+      type: object
+      required: [paymentScheduleId, invoiceAmount, invoiceNumber]
+      properties:
+        paymentScheduleId: { type: string }
+        invoiceAmount: { type: number, exclusiveMinimum: 0 }
+        invoiceDate: { type: string }
+        invoiceNumber: { type: string, minLength: 1 }
+    VendorPortalMilestoneConfirmationInput:
+      type: object
+      properties:
+        confirmationNote: { type: string, maxLength: 500 }
     TreasuryAnalytics:
       type: object
       required: [monthlyPayments, businessUnits, fxRates, totalYtd, varianceRate]
@@ -670,7 +887,7 @@ components:
         excerpt: { type: string }
     AuditLog:
       type: object
-      required: [id, actor, action, target, timestamp, region, deputy]
+      required: [id, actor, action, target, timestamp, region, actedAsDeputy]
       properties:
         id: { type: string }
         actor: { type: string }
@@ -678,7 +895,36 @@ components:
         target: { type: string }
         timestamp: { type: string }
         region: { type: string }
-        deputy: { type: boolean }
+        actedAsDeputy: { type: boolean }
+        deputy:
+          type: boolean
+          description: Legacy alias for actedAsDeputy
+    GovernancePerson:
+      type: object
+      required: [id, name, role, region, onLeave]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        role: { type: string }
+        region: { type: string }
+        onLeave: { type: boolean }
+    DelegationStatus:
+      type: object
+      required: [headOfIt, deputy, delegationActive, authorityLabel]
+      properties:
+        headOfIt:
+          $ref: "#/components/schemas/GovernancePerson"
+        deputy:
+          anyOf:
+            - $ref: "#/components/schemas/GovernancePerson"
+            - type: "null"
+        delegationActive: { type: boolean }
+        authorityLabel: { type: string }
+    HeadOfItLeaveUpdate:
+      type: object
+      required: [onLeave]
+      properties:
+        onLeave: { type: boolean }
     ErrorResponse:
       type: object
       required: [error]
@@ -798,6 +1044,9 @@ components:
         paidAmount: { type: number }
         paymentReference: { type: string }
         threeWayMatch: { type: string }
+        confirmationStatus: { type: string }
+        confirmationNote: { type: string }
+        confirmedAt: { type: string }
     ThreeWayMatch:
       type: object
       required: [id, procurementId, status]

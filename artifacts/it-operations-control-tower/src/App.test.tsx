@@ -45,6 +45,44 @@ describe("StaffPage Jira sync", () => {
     cleanup();
   });
 
+  it("shows the focused four-column Shift signal table", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/staff/sync-jira") {
+        return jsonResponse({ count: 1 });
+      }
+      if (path === "/api/staff") {
+        return jsonResponse([initialStaff]);
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <StaffPage />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("Maya Chen")).toBeInTheDocument();
+    expect(screen.getByText("Staff member")).toBeInTheDocument();
+    expect(screen.getByText("Team / region")).toBeInTheDocument();
+    expect(screen.getByText("Signal")).toBeInTheDocument();
+    expect(screen.getByText("Action")).toBeInTheDocument();
+    expect(screen.queryByText("Ticket")).not.toBeInTheDocument();
+    expect(screen.queryByText("Environment")).not.toBeInTheDocument();
+    expect(screen.queryByText("SHIFT-1001")).not.toBeInTheDocument();
+    expect(screen.queryByText("PROD")).not.toBeInTheDocument();
+    expect(screen.getByTestId("status-staff-s-001")).toBeInTheDocument();
+    expect(screen.getByTestId("button-toggle-status-s-001")).toBeInTheDocument();
+  });
+
   it("refreshes the staff query after a successful sync", async () => {
     let staff = [initialStaff];
     let syncAttempts = 0;

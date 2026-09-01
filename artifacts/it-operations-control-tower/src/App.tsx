@@ -206,6 +206,10 @@ function isActiveStaff(member: StaffMember) {
   return member.status.trim().toLowerCase() === 'active' && !member.isStale;
 }
 
+function isOutOfOfficeStaff(member: StaffMember) {
+  return member.status.trim().toLowerCase().replace(/[-_]+/g, ' ') === 'out of office';
+}
+
 function LoadingRows({ count = 4 }: { count?: number }) {
   return <div className="space-y-2" aria-label="Loading">
     {Array.from({ length: count }).map((_, index) => <div className="skeleton-row" key={index} />)}
@@ -359,11 +363,12 @@ export function DashboardPage() {
   );
   const recentStaff = useMemo(() => staff.slice().sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))).slice(0, 5), [staff]);
   const activeStaffCount = staff.filter(isActiveStaff).length;
-  const totalStaffCount = staff.length;
-  const inactiveStaffCount = staff.filter(member => !isActiveStaff(member)).length;
-  const systemPulsePercent = staffQuery.isLoading || staffQuery.isError || totalStaffCount === 0
+  const outOfOfficeStaffCount = staff.filter(isOutOfOfficeStaff).length;
+  const eligibleStaffCount = staff.length - outOfOfficeStaffCount;
+  const inactiveEligibleStaffCount = staff.filter(member => !isOutOfOfficeStaff(member) && !isActiveStaff(member)).length;
+  const systemPulsePercent = staffQuery.isLoading || staffQuery.isError || eligibleStaffCount === 0
     ? undefined
-    : Math.round((inactiveStaffCount / totalStaffCount) * 100);
+    : Math.round((inactiveEligibleStaffCount / eligibleStaffCount) * 100);
   const hasError = summaryQuery.isError || staffQuery.isError;
   return <div className="page-stack">
     {hasError && <ErrorState onRetry={() => { void summaryQuery.refetch(); void staffQuery.refetch(); }} />}
@@ -376,7 +381,7 @@ export function DashboardPage() {
     <div className="dashboard-grid">
       <section className="panel pulse-panel animate-in animate-delay-1 signal-grid">
         <SectionHeading eyebrow="Operational heartbeat" title="System pulse" action={<StatusPill value={healthQuery.data?.status === 'ok' ? 'Nominal' : healthQuery.isLoading ? 'Checking' : 'Review'} testId="status-system-pulse" />} />
-        <div className="pulse-score-row"><div><strong data-testid="value-system-pulse">{systemPulsePercent === undefined ? '—' : `${systemPulsePercent}%`}</strong><p>{systemPulsePercent === undefined ? 'Waiting for the Shift signal staff feed' : `${inactiveStaffCount} inactive / ${totalStaffCount} total staff members`}</p></div><div className="pulse-ring"><div><span>{systemPulsePercent === undefined ? 'WAIT' : 'LIVE'}</span></div></div></div>
+        <div className="pulse-score-row"><div><strong data-testid="value-system-pulse">{systemPulsePercent === undefined ? '—' : `${systemPulsePercent}%`}</strong><p>{systemPulsePercent === undefined ? 'Waiting for the Shift signal staff feed' : `${inactiveEligibleStaffCount} inactive / ${eligibleStaffCount} staff members excluding ${outOfOfficeStaffCount} out of office`}</p></div><div className="pulse-ring"><div><span>{systemPulsePercent === undefined ? 'WAIT' : 'LIVE'}</span></div></div></div>
         <div className="large-pulse-bars">{[36, 42, 38, 50, 44, 61, 56, 72, 69, 78, 74, 88, 82, 92, 87, 96, 90, 93, 88, 95, 94, 97, 96, 99].map((height, i) => <i key={i} style={{ height: `${height}%` }} />)}</div>
         <div className="panel-foot"><span>Last sync <b className="font-mono">{formatTime(summary?.lastSync)}</b></span><span className="signal-text"><span className="signal-dot" /> Stable telemetry</span></div>
       </section>

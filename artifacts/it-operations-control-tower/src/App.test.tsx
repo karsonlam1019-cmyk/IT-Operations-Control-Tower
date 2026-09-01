@@ -187,6 +187,7 @@ describe("StaffPage Jira sync", () => {
       { ...initialStaff, id: "s-002", name: "Away Operator", isStale: false },
       { ...initialStaff, id: "s-003", name: "Stale Operator", status: "Active" },
       activeStaff,
+      { ...initialStaff, id: "s-005", name: "Out Of Office Operator", status: "Out of Office", isStale: false },
     ];
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);
@@ -239,9 +240,11 @@ describe("StaffPage Jira sync", () => {
     );
 
     await waitFor(() => expect(screen.getByTestId("value-system-pulse")).toHaveTextContent("50%"));
-    expect(screen.getByText("2 inactive / 4 total staff members")).toBeInTheDocument();
+    expect(screen.getByText("2 inactive / 4 staff members excluding 1 out of office")).toBeInTheDocument();
 
-    staff = staff.map(member => ({ ...member, status: "Active", isStale: false }));
+    staff = staff.map(member => member.status === "Out of Office"
+      ? member
+      : { ...member, status: "Active", isStale: false });
     await act(async () => {
       await queryClient.refetchQueries({ queryKey: getListStaffQueryKey() });
     });

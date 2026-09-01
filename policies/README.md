@@ -15,7 +15,7 @@ node ingest.js --dry-run
 ```
 
 Dry-run validates the configuration and reports every PDF's page count,
-extracted text size, chunk count, and the configured 1536-dimensional embedding
+extracted text size, chunk count, and the configured 1024-dimensional embedding
 width. It does not call Cohere or change Supabase.
 
 Run the explicit indexing command only after reviewing the dry-run:

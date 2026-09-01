@@ -12,7 +12,7 @@ export const POLICIES_DIRECTORY = resolve(
   dirname(fileURLToPath(import.meta.url)),
   "policies",
 );
-export const EMBEDDING_DIMENSIONS = 1536;
+export const EMBEDDING_DIMENSIONS = 1024;
 export const CHUNK_TOKEN_LIMIT = 500;
 export const CHUNK_TOKEN_OVERLAP = 50;
 export const EMBEDDING_BATCH_SIZE = 96;
@@ -214,7 +214,18 @@ async function extractDocument(filePath) {
 }
 
 function safeErrorMessage(error, secrets = []) {
-  let message = error instanceof Error ? error.message : String(error);
+  let message;
+  if (error instanceof Error) {
+    message = error.message;
+  } else if (error && typeof error === "object") {
+    try {
+      message = JSON.stringify(error);
+    } catch {
+      message = String(error);
+    }
+  } else {
+    message = String(error);
+  }
   const environmentSecrets = REQUIRED_ENVIRONMENT.map(
     (name) => process.env[name],
   );
@@ -305,7 +316,7 @@ async function generateEmbeddings(chunks, apiKey) {
       : 0;
     throw new IngestionError(
       `Cohere returned embedding dimension ${actual}, but knowledge_base_vectors.embedding requires ${EMBEDDING_DIMENSIONS}. ` +
-        "Stop without writing rows and use a Cohere model/output dimension compatible with vector(1536).",
+        "Stop without writing rows and use a Cohere model/output dimension compatible with vector(1024).",
     );
   }
 

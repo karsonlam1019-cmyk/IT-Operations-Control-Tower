@@ -252,7 +252,7 @@ CREATE TABLE knowledge_base_vectors (
     section_reference TEXT,
     page_number INT,
     content TEXT NOT NULL,
-    embedding vector(1536),
+    embedding vector(1024),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -445,7 +445,7 @@ CREATE POLICY dlq_update_admin ON dlq_entries FOR UPDATE USING (is_admin_user())
 -- Stored Procedure for Vector Match (spec §9). SECURITY DEFINER so app
 -- can run similarity search through PostgREST/anon role (guardrail: RLS bypass).
 CREATE OR REPLACE FUNCTION match_knowledge_base (
-  query_embedding vector(1536),
+  query_embedding vector(1024),
   match_threshold float,
   match_count int
 )

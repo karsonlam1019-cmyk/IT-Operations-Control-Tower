@@ -1,7 +1,7 @@
 import { pgTable, uuid, varchar, text, integer, timestamp } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
-// The embedding vector(1536) column is enabled via the pgvector extension in
+// The embedding vector(1024) column is enabled via the pgvector extension in
 // the SQL migration (drizzle-kit does not bundle pg-vector's vector type by
 // default in this setup), so it is defined in schema.sql and omitted here.
 export const knowledgeBaseVectors = pgTable("knowledge_base_vectors", {

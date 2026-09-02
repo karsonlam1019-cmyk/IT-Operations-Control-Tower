@@ -84,6 +84,7 @@ import {
   loadBudgetSummary,
   loadDashboardStats,
   loadProcurement,
+  loadShiftSignals,
   loadStaff,
   loadVendorPortalPurchaseOrders,
   markPaid,
@@ -97,6 +98,7 @@ import {
   recordAuditEvent,
 } from "../lib/db-runtime";
 import { resolveVendorPortalIdentity, type VendorPortalIdentity } from "../integrations/vendor";
+import { listSupabaseShiftSignals } from "../integrations/supabase";
 import {
   CircuitBreaker,
   CircuitOpenError,
@@ -276,7 +278,7 @@ router.get("/dashboard/summary", async (_req, res) => {
 });
 
 router.get("/staff", async (_req, res) => {
-  const db = await loadStaff();
+  const db = (await listSupabaseShiftSignals()) ?? (await loadShiftSignals()) ?? (await loadStaff());
   res.json(ListStaffResponse.parse(db ?? staff));
 });
 

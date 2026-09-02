@@ -102,6 +102,51 @@ export async function loadStaff(): Promise<RuntimeStaffMember[] | null> {
   }
 }
 
+export async function loadShiftSignals(): Promise<RuntimeStaffMember[] | null> {
+  const pool = await getPool();
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+         s.jira_issue_key AS id,
+         COALESCE(s.staff_member, 'Unassigned') AS name,
+         'Jira SHIFT' AS role,
+         COALESCE(s.team, 'Unassigned') AS team,
+         COALESCE(s.region, '—') AS region,
+         COALESCE(NULLIF(s.signal, ''), NULLIF(s."Process_Status", ''), NULLIF(s.action, ''), 'Unknown') AS status,
+         s.jira_issue_key AS ticket,
+         COALESCE(s.environment, '—') AS environment,
+         '—' AS eta,
+         COALESCE(s.jira_updated_at, s.updated_at) AS updated,
+         COALESCE(s.signal ILIKE '%stale%', false) AS is_stale
+       FROM public.shifts s
+       ORDER BY s.jira_updated_at DESC NULLS LAST, s.jira_issue_key`,
+    );
+    return rows.map((row) => {
+      const name = str(row.name);
+      const parts = name.trim().split(/\s+/).filter(Boolean);
+      const initials =
+        (parts[0]?.[0] ?? "") + (parts.length > 1 ? (parts[1]?.[0] ?? "") : "");
+      return {
+        id: str(row.id),
+        name,
+        initials: initials.toUpperCase(),
+        role: str(row.role),
+        team: str(row.team),
+        region: str(row.region),
+        status: str(row.status),
+        ticket: str(row.ticket),
+        environment: str(row.environment),
+        eta: str(row.eta),
+        updatedAt: str(row.updated),
+        isStale: Boolean(row.is_stale),
+      };
+    });
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------
 // Governance (Head of IT leave + automatic deputy authority)
 // ---------------------------------------------------------------------

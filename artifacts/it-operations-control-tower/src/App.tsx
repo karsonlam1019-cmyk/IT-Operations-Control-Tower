@@ -128,7 +128,7 @@ type IconType = typeof LayoutDashboard;
 
 const navItems: { label: string; href: string; icon: IconType; note?: string }[] = [
   { label: 'Command center', href: '/', icon: LayoutDashboard },
-  { label: 'Staff operations', href: '/staff', icon: UsersRound, note: '300' },
+  { label: 'Staff operations', href: '/staff', icon: UsersRound },
   { label: 'Release control', href: '/release', icon: PackageCheck },
   { label: 'Procurement', href: '/procurement', icon: ClipboardCheck },
   { label: 'Vendor portal', href: '/vendor', icon: Globe2, note: 'external' },
@@ -521,6 +521,9 @@ function IntegrationPulse() {
 function Shell({ children }: { children: ReactNode }) {
   const [location] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const staffQuery = useListStaff({
+    query: { queryKey: getListStaffQueryKey(), refetchInterval: 30000 },
+  });
   const delegationQuery = useGetDelegationStatus({
     query: { queryKey: getGetDelegationStatusQueryKey(), refetchInterval: 15000 },
   });
@@ -546,7 +549,9 @@ function Shell({ children }: { children: ReactNode }) {
           className={`nav-link ${location === href ? 'nav-link-active' : ''}`}
           data-testid={`link-${label.toLowerCase().replace(/\s+/g, '-')}`}
         >
-          <Icon size={17} strokeWidth={1.8} /><span>{label}</span>{note && <em>{note}</em>}
+          <Icon size={17} strokeWidth={1.8} /><span>{label}</span>{label === 'Staff operations'
+            ? <em>{staffQuery.isLoading ? '…' : formatNumber(Array.isArray(staffQuery.data) ? staffQuery.data.length : undefined)}</em>
+            : note && <em>{note}</em>}
         </Link>)}
       </nav>
       <div className="sidebar-lower">
@@ -599,7 +604,7 @@ function DashboardPage() {
   return <div className="page-stack">
     {hasError && <ErrorState onRetry={() => { void summaryQuery.refetch(); void staffQuery.refetch(); }} />}
     <div className="metric-grid">
-      <MetricCard label="Active staff" value={summary ? formatNumber(summary.activeStaff) : '—'} detail={summary ? `${formatNumber(summary.staleStaff)} stale check-ins` : 'Awaiting staff feed'} accent="teal" icon={UsersRound} />
+      <MetricCard label="Active staff" value={summary ? formatNumber(summary.activeStaff) : '—'} detail={summary ? `Jira SHIFT feed · ${formatNumber(summary.staleStaff)} stale check-ins` : 'Awaiting Jira staff feed'} accent="teal" icon={UsersRound} />
       <MetricCard label="Pending approvals" value={summary ? formatNumber(summary.pendingApprovals) : '—'} detail="Across procurement and access" accent="amber" icon={Clock3} />
       <MetricCard label="Release readiness" value={summary ? `${summary.releaseReadiness}%` : '—'} detail="Evidence-backed gate score" accent="lime" icon={PackageCheck} />
       <MetricCard label="Blocked variances" value={summary ? formatNumber(summary.blockedVariances) : '—'} detail="Requires owner action" accent="coral" icon={AlertCircle} />

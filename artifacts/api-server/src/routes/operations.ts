@@ -242,6 +242,10 @@ const demoActors: Record<string, { name: string; region: string; isDeputy?: bool
   "0ebb310c-b241-48b0-9254-7b78f7634676": { name: "Siti Halim", region: "HK" },
 };
 
+function isActiveStaffStatus(status: string): boolean {
+  return status.trim().toLowerCase() === "active";
+}
+
 async function writeOperationalAudit(action: string, target: string, actorId?: string) {
   const persisted = await recordAuditEvent(action, target, actorId);
   if (persisted) {
@@ -266,8 +270,11 @@ async function writeOperationalAudit(action: string, target: string, actorId?: s
 router.get("/dashboard/summary", async (_req, res) => {
   const checked = releaseGates.filter((item) => item.checked).length;
   const db = await loadDashboardStats();
+  const jiraStaff = (await listSupabaseShiftSignals()) ?? (await loadShiftSignals());
   res.json(GetDashboardSummaryResponse.parse({
-    activeStaff: db?.activeStaff ?? 247,
+    activeStaff: jiraStaff
+      ? jiraStaff.filter((member) => isActiveStaffStatus(member.status)).length
+      : db?.activeStaff ?? 247,
     staleStaff: db?.staleStaff ?? staff.filter((member) => member.isStale).length,
     pendingApprovals: db?.pendingApprovals ?? procurement.filter((item) => item.status.includes("Pending")).length,
     blockedVariances: db?.blockedVariances ?? procurement.filter((item) => item.status.includes("Blocked")).length,

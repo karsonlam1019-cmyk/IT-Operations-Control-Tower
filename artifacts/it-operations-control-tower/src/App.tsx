@@ -345,8 +345,16 @@ function statusTone(status = '') {
   return 'status-neutral';
 }
 
-function StatusPill({ value, testId }: { value: string; testId?: string }) {
-  return <span className={`status-pill ${statusTone(value)}`} data-testid={testId}>{value || 'Unassigned'}</span>;
+function signalTone(signal = '') {
+  const normalized = signal.trim().toLowerCase();
+  if (normalized === 'active') return 'signal-active';
+  if (normalized === 'inactive') return 'signal-inactive';
+  return 'status-neutral';
+}
+
+function StatusPill({ value, testId, tone = 'default' }: { value: string; testId?: string; tone?: 'default' | 'signal' }) {
+  const className = tone === 'signal' ? signalTone(value) : statusTone(value);
+  return <span className={`status-pill ${className}`} data-testid={testId}>{value || 'Unassigned'}</span>;
 }
 
 function LoadingRows({ count = 4 }: { count?: number }) {
@@ -708,7 +716,7 @@ function StaffPage() {
       <SectionHeading eyebrow="Coverage board" title="Shift signal" action={<div className="legend"><span><i className="legend-dot live" /> Live</span><span><i className="legend-dot stale" /> Stale</span></div>} />
       {query.isError ? <ErrorState onRetry={() => void query.refetch()} /> : query.isLoading ? <LoadingRows count={6} /> : !filtered.length ? <EmptyState title={staff.length ? 'No matching staff' : 'No staff feed available'} detail={staff.length ? 'Adjust the search or status filter.' : 'Once monitored staff are connected, their shift signal will appear here.'} icon={UsersRound} /> : <div className="staff-table">
         <div className="table-head staff-head"><span>Staff Member</span><span>Team</span><span>Region</span><span>Signal</span><span>Status</span><span>Source</span></div>
-        {filtered.map(member => <div className="table-row staff-row" key={member.id} data-testid={`row-staff-${member.id}`}><span className="person-cell"><span className={`avatar ${member.isStale ? 'avatar-stale' : ''}`}>{member.initials}</span><span><b>{member.name}</b></span></span><span>{member.team}</span><span>{member.region}</span><span><StatusPill value={member.signal ?? 'Unknown'} testId={`signal-staff-${member.id}`} /></span><span><StatusPill value={member.status} testId={`status-staff-${member.id}`} /><small className="table-subtext">Updated {formatTime(member.updatedAt)}</small></span><span className="muted-label">{member.source ?? '—'}</span></div>)}
+        {filtered.map(member => <div className="table-row staff-row" key={member.id} data-testid={`row-staff-${member.id}`}><span className="person-cell"><span className={`avatar ${member.isStale ? 'avatar-stale' : ''}`}>{member.initials}</span><span><b>{member.name}</b></span></span><span>{member.team}</span><span>{member.region}</span><span><StatusPill value={member.signal ?? 'Unknown'} tone="signal" testId={`signal-staff-${member.id}`} /></span><span><StatusPill value={member.status} testId={`status-staff-${member.id}`} /><small className="table-subtext">Updated {formatTime(member.updatedAt)}</small></span><span className="muted-label">{member.source ?? '—'}</span></div>)}
       </div>}
     </section>
   </div>;

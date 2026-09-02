@@ -4,8 +4,11 @@ Enterprise command center for staff operations, release governance, procurement 
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 8080)
-- `pnpm --filter @workspace/it-operations-control-tower run dev` — run the dashboard through its managed workflow
+- Dashboard preview (canonical): managed workflow `artifacts/it-operations-control-tower: web` runs `pnpm --filter @workspace/it-operations-control-tower run dev` on port `21727`, mounted at `/`.
+- API service: managed workflow `artifacts/api-server: API Server` runs `pnpm --filter @workspace/api-server run dev` on port `8080`, mounted at `/api`.
+- The dashboard's same-origin `/api/*` requests are proxied to `http://127.0.0.1:8080` in both Vite development and standalone production preview; the production artifact router also maps `/api` to the API service.
+- Production dashboard builds to `artifacts/it-operations-control-tower/dist/public` and uses the artifact's static server with an SPA rewrite for every client route.
+- Restart the two managed workflows above rather than creating a root `Start application` workflow or selecting the legacy port `5000`; the artifact configuration is the source of truth for preview routing and ports.
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
@@ -46,7 +49,7 @@ _Populate as you build — explicit user instructions worth remembering across s
 ## Gotchas
 
 - Run API codegen after every OpenAPI change.
-- Start app services through their managed workflows so `PORT` and `BASE_PATH` are provided.
+- Start app services through their managed workflows so `PORT` and `BASE_PATH` are provided (`21727`/`/` for the dashboard, `8080`/`/api` for the API).
 - Apply `migrate:forward` before deploying API code that reads newly added database columns.
 
 ## Pointers

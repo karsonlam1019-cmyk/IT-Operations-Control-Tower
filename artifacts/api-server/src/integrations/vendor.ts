@@ -1,8 +1,14 @@
-import { readEnv, type IntegrationStatus } from "./config";
+import {
+  errorMessage,
+  fetchWithTimeout,
+  readEnv,
+  type IntegrationStatus,
+} from "./config";
 import { timingSafeEqual } from "node:crypto";
 
 export type VendorConfig = {
   publicKey: string;
+  apiUrl: string;
   portalApiKey: string;
   portalVendorId: string;
   portalVendorName: string;
@@ -13,6 +19,7 @@ export type VendorConfig = {
 export function getVendorConfig(): Partial<VendorConfig> {
   return {
     publicKey: readEnv("VENDOR_PUBLIC_KEY"),
+    apiUrl: readEnv("VENDOR_API_URL"),
     portalApiKey: readEnv("VENDOR_PORTAL_API_KEY"),
     portalVendorId: readEnv("VENDOR_PORTAL_VENDOR_ID"),
     portalVendorName: readEnv("VENDOR_PORTAL_VENDOR_NAME"),

@@ -22,6 +22,13 @@ export type JiraTicket = {
   updatedAt: string;
 };
 
+export type JiraTicketFeed = {
+  tickets: JiraTicket[];
+  source: "jira" | "representative";
+  degraded?: boolean;
+  message?: string;
+};
+
 export type JiraReleaseTask = {
   key: string;
   summary: string;
@@ -95,6 +102,15 @@ const FALLBACK_TICKETS: JiraTicket[] = [
 
 function normalizeSupabaseUrl(value: string): string {
   return value.replace(/\/+$/, "").replace(/\/rest\/v1$/i, "");
+}
+
+function normalizeJiraBaseUrl(value?: string): string {
+  if (!value) return "";
+  const withoutTrailingSlash = value.trim().replace(/\/+$/, "");
+  if (!withoutTrailingSlash) return "";
+  return /^https?:\/\//i.test(withoutTrailingSlash)
+    ? withoutTrailingSlash
+    : `https://${withoutTrailingSlash}`;
 }
 
 function toJiraEnvironment(value: unknown): JiraTicket["environment"] {

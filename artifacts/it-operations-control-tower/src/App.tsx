@@ -547,7 +547,6 @@ function Shell({ children }: { children: ReactNode }) {
     ? delegation.deputy
     : delegation?.headOfIt;
   const meta = pageMeta[location] ?? pageMeta['/'];
-  const staffQuery = useListStaff({ query: { queryKey: getListStaffQueryKey(), refetchInterval: 15000 } });
   const staff = (staffQuery.data as StaffMember[] | undefined) ?? [];
   const staffCountLabel = staffQuery.isLoading ? '…' : staffQuery.isError ? '—' : String(staff.length);
   return <div className="app-shell min-h-[100dvh]">
@@ -677,7 +676,7 @@ function JiraQueueSection() {
         {tickets.map((t: JiraTicket) => <div className="table-row" key={t.id} data-testid={`row-jira-${t.key}`}><span className="font-mono"><b>{t.key}</b></span><span>{t.summary}</span><span><StatusPill value={t.status} /></span><span className="font-mono">{t.environment}</span><span>{t.assignee}</span></div>)}
       </div> : <EmptyState title="No tickets" detail="Jira is not configured yet." icon={ClipboardCheck} />}
     </section>
-  </div>;
+  );
 }
 
 function StaffPage() {

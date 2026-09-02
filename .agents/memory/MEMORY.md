@@ -1,0 +1,4 @@
+- [Jira Cloud search endpoint](jira-cloud-search-endpoint.md) — this tenant rejects the legacy v3 search route and requires the enhanced JQL route.
+- [Artifact workflow port ownership](artifact-workflow-port-ownership.md) — managed artifact workflows must be the only services owning their assigned preview ports.
+- [Frontend polling timer tests](frontend-polling-timer-tests.md) — React Query polling can share setInterval; timer tests should identify the intended interval by delay.
+- [Supabase policy vector contract](supabase-policy-vector-contract.md) — the live policy vector column uses 1024 dimensions; keep embedding output and RPC schema aligned.

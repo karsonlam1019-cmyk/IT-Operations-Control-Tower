@@ -56,6 +56,19 @@ export const ListStaffResponse = zod.array(ListStaffResponseItem)
 
 
 /**
+ * Runs the server-side Jira shift synchronizer and returns the number of processed shifts.
+ * @summary Sync staff shifts from Jira
+ */
+export const syncStaffJiraResponseCountMin = 0;
+
+
+
+export const SyncStaffJiraResponse = zod.object({
+  "count": zod.number().min(syncStaffJiraResponseCountMin)
+})
+
+
+/**
  * @summary Update a staff member's status
  */
 export const UpdateStaffStatusParams = zod.object({
@@ -817,28 +830,6 @@ export const GetTreasuryAnalyticsResponse = zod.object({
 })),
   "totalYtd": zod.number(),
   "varianceRate": zod.number()
-})
-
-
-/**
- * @summary Search verified compliance guidance
- */
-
-
-
-export const SearchComplianceBody = zod.object({
-  "query": zod.string().min(1)
-})
-
-export const SearchComplianceResponse = zod.object({
-  "answer": zod.string(),
-  "confidence": zod.number(),
-  "citations": zod.array(zod.object({
-  "document": zod.string(),
-  "section": zod.string(),
-  "page": zod.number(),
-  "excerpt": zod.string()
-}))
 })
 
 

@@ -600,7 +600,7 @@ CREATE TABLE public.knowledge_base_vectors (
     section_reference text,
     page_number integer,
     content text NOT NULL,
-    embedding public.vector(1536),
+    embedding public.vector(1024),
     created_at timestamp with time zone DEFAULT now()
 );
 

@@ -37,8 +37,8 @@ router.get("/jira/tickets", async (_req, res) => {
 
 // /api/vendor/submissions — vendor invoices/milestones via the vendor API
 router.get("/vendor/submissions", async (_req, res) => {
-  const submissions = await listVendorSubmissions();
-  res.json({ submissions, source: "representative" });
+  const feed = await listVendorSubmissions();
+  res.json(feed);
 });
 
 export default router;

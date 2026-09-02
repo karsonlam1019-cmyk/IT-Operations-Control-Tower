@@ -44,8 +44,6 @@ import {
   ResolveVarianceBody,
   ResolveVarianceParams,
   ResolveVarianceResponse,
-  SearchComplianceBody,
-  SearchComplianceResponse,
   SubmitInvoiceBody,
   SubmitInvoiceParams,
   SubmitInvoiceResponse,
@@ -112,6 +110,41 @@ const router: IRouter = Router();
 // Circuit breakers for downstream resilience boundaries.
 const dbBreaker = new CircuitBreaker("db", 5, 30_000);
 const budgetBreaker = new CircuitBreaker("budget-fx", 5, 30_000);
+
+type SyncFailureCategory =
+  | "CONFIGURATION"
+  | "JIRA"
+  | "SUPABASE"
+  | "UNKNOWN";
+
+function getSyncFailureCategory(error: unknown): SyncFailureCategory {
+  if (!(error instanceof Error)) {
+    return "UNKNOWN";
+  }
+
+  const category = (error as Error & { category?: unknown }).category;
+  if (
+    category === "CONFIGURATION" ||
+    category === "JIRA" ||
+    category === "SUPABASE" ||
+    category === "UNKNOWN"
+  ) {
+    return category;
+  }
+
+  const message = error.message;
+  if (message.startsWith("Missing required environment variables:")) {
+    return "CONFIGURATION";
+  }
+  const normalizedMessage = message.toLowerCase();
+  if (normalizedMessage.includes("supabase")) {
+    return "SUPABASE";
+  }
+  if (normalizedMessage.includes("jira")) {
+    return "JIRA";
+  }
+  return "UNKNOWN";
+}
 
 const staff = [
   { id: "s-001", name: "Maya Chen", initials: "MC", role: "Incident Commander", team: "Platform Reliability", region: "HK", status: "On Call - Incidents", ticket: "INC-4821", environment: "PROD", eta: "42 min", updatedAt: "1 min ago", isStale: false },
@@ -339,6 +372,28 @@ router.get("/dashboard/summary", async (_req, res) => {
 router.get("/staff", async (_req, res) => {
   const db = (await listSupabaseShiftSignals()) ?? (await loadShiftSignals()) ?? (await loadStaff());
   res.json(ListStaffResponse.parse(db ?? staff));
+});
+
+router.post("/staff/sync-jira", async (req, res): Promise<void> => {
+  try {
+    const result = await syncJiraShifts();
+    res.json(SyncStaffJiraResponse.parse(result));
+  } catch (error) {
+    const category = getSyncFailureCategory(error);
+    req.log.error(
+      { category },
+      category === "CONFIGURATION"
+        ? "Jira shift sync is not configured"
+        : "Jira shift sync failed",
+    );
+    res.status(503).json({
+      error: category === "CONFIGURATION"
+        ? "Jira shift sync is not configured on the server"
+        : "Jira shift sync failed; check the integration logs",
+      code: "JIRA_SYNC_UNAVAILABLE",
+      category,
+    });
+  }
 });
 
 router.patch("/staff/:id", async (req, res) => {

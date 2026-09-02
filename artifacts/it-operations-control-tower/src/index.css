@@ -401,6 +401,9 @@ button:disabled { cursor: wait; opacity: .6; }
 .treasury-export-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: end; }
 .export-button { white-space: nowrap; }
 
+.staff-head, .staff-row { grid-template-columns: 1.5fr 1.25fr .7fr 1fr .95fr; }
+.filter-label { color: var(--ink-soft); text-transform: uppercase; letter-spacing: .1em; font: 9px var(--app-font-mono); }
+
 @media (max-width: 1100px) {
   .page-content { padding-left: 24px; padding-right: 24px; }.delegation-panel { grid-template-columns: 1fr 1fr; }.delegation-panel > .button { grid-column: 1 / -1; justify-self: start; }.staff-head, .staff-row { grid-template-columns: 1.35fr 1fr .75fr .8fr 1fr; }.staff-row .row-action, .staff-head > span:last-child { display: none; }.procurement-head, .procurement-row { grid-template-columns: .8fr 1.2fr .7fr 1fr .8fr .8fr; }.procurement-head > span:last-child, .procurement-row > span:last-child { display: none; }.fx-list { grid-template-columns: repeat(2, 1fr); }
 }

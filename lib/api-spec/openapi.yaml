@@ -52,6 +52,25 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/StaffMember"
+  /staff/sync-jira:
+    post:
+      operationId: syncStaffJira
+      tags: [operations]
+      summary: Sync staff shifts from Jira
+      description: Runs the server-side Jira shift synchronizer and returns the number of processed shifts.
+      responses:
+        "200":
+          description: Jira shift synchronization result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JiraSyncResult"
+        "503":
+          description: Jira synchronization is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /staff/{id}:
     patch:
       operationId: updateStaffStatus
@@ -671,24 +690,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TreasuryAnalytics"
-  /compliance/search:
-    post:
-      operationId: searchCompliance
-      tags: [operations]
-      summary: Search verified compliance guidance
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ComplianceSearchInput"
-      responses:
-        "200":
-          description: Compliance answer with paragraph citations
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ComplianceAnswer"
   /audit-logs:
     get:
       operationId: listAuditLogs
@@ -869,29 +870,6 @@ components:
         currency: { type: string }
         rate: { type: number }
         delta: { type: number }
-    ComplianceSearchInput:
-      type: object
-      required: [query]
-      properties:
-        query: { type: string, minLength: 1 }
-    ComplianceAnswer:
-      type: object
-      required: [answer, confidence, citations]
-      properties:
-        answer: { type: string }
-        confidence: { type: number }
-        citations:
-          type: array
-          items:
-            $ref: "#/components/schemas/Citation"
-    Citation:
-      type: object
-      required: [document, section, page, excerpt]
-      properties:
-        document: { type: string }
-        section: { type: string }
-        page: { type: number }
-        excerpt: { type: string }
     AuditLog:
       type: object
       required: [id, actor, action, target, timestamp, region, actedAsDeputy]
@@ -938,6 +916,14 @@ components:
       properties:
         error: { type: string }
         code: { type: string }
+        category:
+          type: string
+          enum: [CONFIGURATION, JIRA, SUPABASE, UNKNOWN]
+    JiraSyncResult:
+      type: object
+      required: [count]
+      properties:
+        count: { type: number, minimum: 0 }
     CreateProcurementInput:
       type: object
       required:

@@ -1,4 +1,4 @@
-import { type ReactNode, useMemo, useState, useEffect, useRef, useCallback } from 'react';
+import React, { type ReactNode, useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle,
@@ -6,7 +6,6 @@ import {
   ArrowUpRight,
   BarChart3,
   Bell,
-  BookOpen,
   Check,
   CheckCircle2,
   ChevronRight,
@@ -32,10 +31,8 @@ import {
   PanelLeft,
   RefreshCw,
   Search,
-  Send,
   ShieldCheck,
   SlidersHorizontal,
-  Sparkles,
   UserRound,
   UsersRound,
   WalletCards,
@@ -52,6 +49,7 @@ import {
   getListProcurementRecordsQueryKey,
   getListReleaseGatesQueryKey,
   getListStaffQueryKey,
+  useSyncStaffJira,
   useAdvanceProcurementStatus,
   useCreatePaymentSchedule,
   useCreateProcurementRecord,
@@ -67,14 +65,12 @@ import {
   useListStaff,
   useMarkPaid,
   useResolveVariance,
-  useSearchCompliance,
   useSubmitInvoice,
   useSubmitProcurementReview,
   useToggleReleaseGate,
   useUpdateHeadOfItLeave,
   type AuditLog,
   type BusinessUnitAllocation,
-  type ComplianceAnswer,
   type DashboardSummary,
   type DelegationStatus,
   type FxRate,
@@ -94,7 +90,6 @@ import {
   useJiraTickets,
   useVendorSubmissions,
   type IntegrationStatus,
-  type JiraTicket,
   type VendorSubmission,
 } from '@/hooks/use-integrations';
 import { Button } from '@/components/ui/button';
@@ -131,7 +126,6 @@ const navItems: { label: string; href: string; icon: IconType; note?: string }[]
   { label: 'Procurement', href: '/procurement', icon: ClipboardCheck },
   { label: 'Vendor portal', href: '/vendor', icon: Globe2, note: 'external' },
   { label: 'Treasury', href: '/treasury', icon: WalletCards },
-  { label: 'Compliance', href: '/compliance', icon: BookOpen },
   { label: 'Administration', href: '/admin', icon: LockKeyhole },
 ];
 
@@ -142,7 +136,6 @@ const pageMeta: Record<string, { eyebrow: string; title: string; description: st
   '/procurement': { eyebrow: 'Commercial / workflow', title: 'Procurement control', description: 'Approvals, purchase orders, and exceptions in one accountable queue.' },
   '/vendor': { eyebrow: 'Supplier / self-service', title: 'Vendor portal', description: 'Purchase orders, milestone deliveries, and invoice submissions for external vendors.' },
   '/treasury': { eyebrow: 'Finance / allocation', title: 'Treasury overview', description: 'Payment velocity, business-unit allocation, and foreign exchange exposure.' },
-  '/compliance': { eyebrow: 'Risk / guidance', title: 'Compliance assistant', description: 'Ask a policy question. Get an answer with a source you can inspect.' },
   '/admin': { eyebrow: 'Governance / access', title: 'Administration', description: 'Access posture and an immutable trail of operational decisions.' },
 };
 
@@ -357,6 +350,14 @@ function StatusPill({ value, testId, tone = 'default' }: { value: string; testId
   return <span className={`status-pill ${className}`} data-testid={testId}>{value || 'Unassigned'}</span>;
 }
 
+function isActiveStaff(member: StaffMember) {
+  return member.status.trim().toLowerCase() === 'active' && !member.isStale;
+}
+
+function isOutOfOfficeStaff(member: StaffMember) {
+  return member.status.trim().toLowerCase().replace(/[-_]+/g, ' ') === 'out of office';
+}
+
 function LoadingRows({ count = 4 }: { count?: number }) {
   return <div className="space-y-2" aria-label="Loading">
     {Array.from({ length: count }).map((_, index) => <div className="skeleton-row" key={index} />)}
@@ -500,8 +501,9 @@ function IntegrationPulse() {
   const configuredOk = statuses.filter((s: IntegrationStatus) => s.status === 'ok').length;
   const total = statuses.length;
   const connected = statuses.filter((s: IntegrationStatus) => s.configured).length;
+  const unavailable = statuses.filter((s: IntegrationStatus) => s.status !== 'ok');
   return (
-    <div className="pulse-mini">
+    <div className="pulse-mini" title={unavailable.map((s: IntegrationStatus) => `${s.name}: ${s.message ?? s.status}`).join('\n')}>
       <div className="pulse-mini-heading">
         <span className="signal-dot" /> Integrations{' '}
         <span className="font-mono">{healthQuery.isLoading ? '...' : `${configuredOk}/${total || 0}`}</span>
@@ -511,6 +513,8 @@ function IntegrationPulse() {
           ? statuses.map((s: IntegrationStatus, i: number) => (
               <i
                 key={s.name}
+                aria-label={`${s.name}: ${s.status}`}
+                title={`${s.name}: ${s.message ?? s.status}`}
                 style={{
                   height: s.status === 'ok' ? 92 : s.status === 'error' ? 30 : 55,
                   background: s.status === 'ok' ? 'var(--accent)' : s.status === 'error' ? '#e5484d' : undefined,
@@ -519,7 +523,7 @@ function IntegrationPulse() {
             ))
           : [40, 55, 45, 60].map((h, i) => <i style={{ height: h }} key={i} />)}
       </div>
-      <small>{healthQuery.isLoading ? 'Checking service feeds…' : `${connected} of ${total || 0} services configured`}</small>
+      <small>{healthQuery.isLoading ? 'Checking service feeds…' : unavailable.length ? `${configuredOk} healthy · ${unavailable.length} fallback/offline` : `${connected} of ${total || 0} services configured`}</small>
     </div>
   );
 }
@@ -543,6 +547,9 @@ function Shell({ children }: { children: ReactNode }) {
     ? delegation.deputy
     : delegation?.headOfIt;
   const meta = pageMeta[location] ?? pageMeta['/'];
+  const staffQuery = useListStaff({ query: { queryKey: getListStaffQueryKey(), refetchInterval: 15000 } });
+  const staff = (staffQuery.data as StaffMember[] | undefined) ?? [];
+  const staffCountLabel = staffQuery.isLoading ? '…' : staffQuery.isError ? '—' : String(staff.length);
   return <div className="app-shell min-h-[100dvh]">
     <aside className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`}>
       <div className="brand">
@@ -577,9 +584,6 @@ function Shell({ children }: { children: ReactNode }) {
           <button className="mobile-menu" onClick={() => setMobileOpen(true)} data-testid="button-open-menu"><Menu size={20} /></button>
           <span className="breadcrumb">Orbital <ChevronRight size={13} /> {meta.eyebrow.split(' / ')[0]}</span>
         </div>
-        <div className="topbar-center">
-          <GlobalSearch />
-        </div>
         <div className="topbar-actions">
           <DeputyToggle status={delegation} loading={delegationQuery.isLoading} />
           <div className="sync-status"><span className="signal-dot" /> Live <span className="font-mono">09:42:18</span></div>
@@ -604,13 +608,24 @@ function MetricCard({ label, value, detail, accent = 'teal', icon: Icon }: { lab
   </div>;
 }
 
-function DashboardPage() {
+export function DashboardPage() {
   const summaryQuery = useGetDashboardSummary({ query: { queryKey: getGetDashboardSummaryQueryKey(), refetchInterval: 30000 } });
   const staffQuery = useListStaff({ query: { queryKey: getListStaffQueryKey(), refetchInterval: false, refetchOnMount: false } });
   const healthQuery = useHealthCheck({ query: { queryKey: getHealthCheckQueryKey(), refetchInterval: 30000 } });
+  const jiraTicketsQuery = useJiraTickets();
   const summary = summaryQuery.data as DashboardSummary | undefined;
   const staff = (staffQuery.data as StaffMember[] | undefined) ?? [];
+  const jiraTickets = (jiraTicketsQuery.data?.tickets ?? []).filter(
+    ticket => ticket.status.trim().toLowerCase() !== 'completed',
+  );
   const recentStaff = useMemo(() => staff.slice().sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))).slice(0, 5), [staff]);
+  const activeStaffCount = staff.filter(isActiveStaff).length;
+  const outOfOfficeStaffCount = staff.filter(isOutOfOfficeStaff).length;
+  const eligibleStaffCount = staff.length - outOfOfficeStaffCount;
+  const inactiveEligibleStaffCount = staff.filter(member => !isOutOfOfficeStaff(member) && !isActiveStaff(member)).length;
+  const systemPulsePercent = staffQuery.isLoading || staffQuery.isError || eligibleStaffCount === 0
+    ? undefined
+    : Math.round((inactiveEligibleStaffCount / eligibleStaffCount) * 100);
   const hasError = summaryQuery.isError || staffQuery.isError;
   return <div className="page-stack">
     {hasError && <ErrorState onRetry={() => { void summaryQuery.refetch(); void staffQuery.refetch(); }} />}
@@ -662,7 +677,7 @@ function JiraQueueSection() {
         {tickets.map((t: JiraTicket) => <div className="table-row" key={t.id} data-testid={`row-jira-${t.key}`}><span className="font-mono"><b>{t.key}</b></span><span>{t.summary}</span><span><StatusPill value={t.status} /></span><span className="font-mono">{t.environment}</span><span>{t.assignee}</span></div>)}
       </div> : <EmptyState title="No tickets" detail="Jira is not configured yet." icon={ClipboardCheck} />}
     </section>
-  );
+  </div>;
 }
 
 function StaffPage() {
@@ -694,6 +709,37 @@ function StaffPage() {
       onError: () => toast.error('Could not update Head of IT leave status'),
     });
   };
+  useEffect(() => {
+    syncJiraRef.current = syncJira;
+  }, [syncJira]);
+  const runJiraSync = useCallback(() => {
+    if (syncInFlightRef.current || syncJiraRef.current.isPending) return;
+    syncInFlightRef.current = true;
+    syncJiraRef.current.mutate(undefined, {
+      onSuccess: (result) => {
+        setSyncFailure(null);
+        void client.invalidateQueries({ queryKey: getListStaffQueryKey() });
+        toast.success(`Jira sync complete: ${result.count} shift${result.count === 1 ? '' : 's'} processed`);
+      },
+      onError: (error) => {
+        const message = getSyncFailureMessage(error);
+        setSyncFailure(message);
+        toast.error(message);
+      },
+      onSettled: () => {
+        syncInFlightRef.current = false;
+      },
+    });
+  }, [client]);
+  const autoSyncStartedRef = useRef(false);
+  useEffect(() => {
+    if (!autoSyncStartedRef.current) {
+      autoSyncStartedRef.current = true;
+      runJiraSync();
+    }
+    const timer = window.setInterval(runJiraSync, JIRA_SYNC_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [runJiraSync]);
   return <div className="page-stack">
     <section className={`panel delegation-panel ${delegation?.delegationActive ? 'delegation-panel-active' : ''}`} data-testid="panel-delegation-status">
       <div className="delegation-summary">
@@ -741,12 +787,13 @@ function ReleasePage() {
 function VendorSubmissionsSection() {
   const vendorQuery = useVendorSubmissions();
   const submissions = vendorQuery.data?.submissions ?? [];
+  const sourceLabel = vendorQuery.data?.degraded ? `${vendorQuery.data.source} fallback` : vendorQuery.data?.source;
   return (
     <section className="panel animate-in">
       <SectionHeading
         eyebrow="Vendor API"
         title="Incoming submissions"
-        action={<span className="muted-label">Source: {vendorQuery.data?.source ?? '…'}</span>}
+        action={<span className="muted-label" title={vendorQuery.data?.message}>Source: {sourceLabel ?? '…'}</span>}
       />
       {vendorQuery.isLoading ? <LoadingRows count={3} /> : submissions.length ? <div className="activity-table">
         <div className="table-head"><span>Type</span><span>PO</span><span>Amount</span><span>Vendor</span><span>Submitted</span></div>
@@ -806,45 +853,6 @@ function TreasuryPage() {
   </> : <EmptyState title="No treasury data" detail="Treasury analytics will appear when the reporting feed is available." icon={WalletCards} />}</div>;
 }
 
-function CitationCard({ citation }: { citation: ComplianceAnswer['citations'][number] }) {
-  return <div className="citation-card" data-testid={`citation-${citation.page}-${citation.section}`}><div className="citation-meta"><FileCheck2 size={14} /><span>{citation.document}</span><span>§ {citation.section}</span><span>p. {citation.page}</span></div><p>“{citation.excerpt}”</p></div>;
-}
-
-function CompliancePage() {
-  const searchString = useSearch();
-  const searchParams = new URLSearchParams(searchString);
-  const initialQuery = searchParams.get('q') || '';
-  const [queryText, setQueryText] = useState(initialQuery);
-  const search = useSearchCompliance();
-  const answer = search.data as ComplianceAnswer | undefined;
-  
-  const hasRunInitial = useRef(false);
-  
-  const ask = useCallback((q: string) => { 
-    if (!q.trim()) return; 
-    search.mutate({ data: { query: q.trim() } }, { 
-      onSuccess: () => toast.success('Guidance retrieved'), 
-      onError: () => toast.error('Could not search policy guidance') 
-    }); 
-  }, [search.mutate]);
-
-  useEffect(() => {
-    if (initialQuery && !hasRunInitial.current) {
-      hasRunInitial.current = true;
-      ask(initialQuery);
-    }
-  }, [initialQuery, ask]);
-
-  const handleAsk = () => ask(queryText);
-
-  return <div className="page-stack compliance-page"><section className="compliance-hero panel signal-grid"><div className="compliance-orb"><Sparkles size={20} /></div><div><span className="eyebrow">Verified policy search</span><h2>What decision are you making?</h2><p>Ask in plain language. Orbital searches internal policy and returns cited guidance for review.</p></div><div className="compliance-search"><Search size={17} /><input value={queryText} onChange={e => setQueryText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleAsk(); }} placeholder="e.g. Can a vendor access production data during UAT?" data-testid="input-compliance-query" /><button className="button button-primary" onClick={handleAsk} disabled={search.isPending || !queryText.trim()} data-testid="button-search-compliance">{search.isPending ? 'Searching' : 'Search guidance'}<Send size={14} /></button></div></section>
-    {search.isError && <ErrorState onRetry={handleAsk} />}
-    {!answer && !search.isPending && <section className="compliance-empty"><BookOpen size={22} /><strong>Answers carry their evidence</strong><p>Start with a policy question. Your results will show confidence and the exact document excerpt behind the answer.</p><div className="question-chips"><button onClick={() => setQueryText('What are the approval controls for production access?')} data-testid="button-suggest-access">Production access controls</button><button onClick={() => setQueryText('When is a vendor security review required?')} data-testid="button-suggest-vendor">Vendor security review</button><button onClick={() => setQueryText('What evidence is needed for release handover?')} data-testid="button-suggest-release">Release evidence</button></div></section>}
-    {search.isPending && <section className="panel"><LoadingRows count={3} /></section>}
-    {answer && <div className="answer-grid"><section className="panel answer-card"><div className="answer-top"><span className="eyebrow">Policy answer</span><span className="confidence"><span style={{ width: `${answer.confidence * 100}%` }} /> {Math.round(answer.confidence * 100)}% confidence</span></div><p className="answer-copy">{answer.answer}</p><div className="answer-foot"><ShieldCheck size={15} /> Grounded in {answer.citations.length} cited source{answer.citations.length === 1 ? '' : 's'} <button className="button button-quiet" onClick={() => setQueryText('')} data-testid="button-clear-answer">Clear</button></div></section><section className="panel"><SectionHeading eyebrow="Evidence trail" title="Citations" /><div className="citation-list">{answer.citations.length ? answer.citations.map((citation, i) => <CitationCard citation={citation} key={`${citation.document}-${i}`} />) : <EmptyState title="No citations returned" detail="Ask a narrower policy question for source evidence." icon={FileCheck2} />}</div></section></div>}
-  </div>;
-}
-
 function AdminPage() {
   const query = useListAuditLogs({ query: { queryKey: getListAuditLogsQueryKey(), refetchInterval: 30000 } });
   const delegationQuery = useGetDelegationStatus({ query: { queryKey: getGetDelegationStatusQueryKey() } });
@@ -883,7 +891,6 @@ function Router() {
     <Route path="/procurement" component={ProcurementWorkflowPage} />
     <Route path="/vendor" component={VendorPage} />
     <Route path="/treasury" component={TreasuryPage} />
-    <Route path="/compliance" component={CompliancePage} />
     <Route path="/admin" component={AdminPage} />
     <Route><NotFoundPage /></Route>
   </Switch></RoutedErrorBoundary></Shell>;

@@ -11,6 +11,7 @@ Enterprise command center for staff operations, release governance, procurement 
 - Restart the two managed workflows above rather than creating a root `Start application` workflow or selecting the legacy port `5000`; the artifact configuration is the source of truth for preview routing and ports.
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
+- `pnpm run smoke:dashboard` — start both artifact-owned services on isolated ports, verify API health and dashboard HTML, and confirm clean process shutdown
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - `pnpm --filter @workspace/db run migrate:forward` — apply ordered, idempotent migrations to an existing database

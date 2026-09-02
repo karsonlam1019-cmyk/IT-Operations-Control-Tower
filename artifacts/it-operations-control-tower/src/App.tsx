@@ -623,7 +623,7 @@ function DashboardPage() {
     <div className="dashboard-grid">
       <section className="panel pulse-panel animate-in animate-delay-1 signal-grid">
         <SectionHeading eyebrow="Operational heartbeat" title="System pulse" action={<StatusPill value={healthQuery.data?.status === 'ok' ? 'Nominal' : healthQuery.isLoading ? 'Checking' : 'Review'} testId="status-system-pulse" />} />
-        <div className="pulse-score-row"><div><strong>{summary?.systemPulse ?? '—'}</strong><span>/ 100</span><p>Composite signal across monitored services</p></div><div className="pulse-ring"><div><span>{summary?.systemPulse ? 'GOOD' : 'WAIT'}</span></div></div></div>
+        <div className="pulse-score-row"><div><strong>{summary?.systemPulse ?? '—'}</strong><span>/ 100</span><p>Inactive members excluding out-of-office members</p></div><div className="pulse-ring"><div><span>{summary?.systemPulse ? 'GOOD' : 'WAIT'}</span></div></div></div>
         <div className="large-pulse-bars">{[36, 42, 38, 50, 44, 61, 56, 72, 69, 78, 74, 88, 82, 92, 87, 96, 90, 93, 88, 95, 94, 97, 96, 99].map((height, i) => <i key={i} style={{ height: `${height}%` }} />)}</div>
         <div className="panel-foot"><span>Last sync <b className="font-mono">{formatTime(summary?.lastSync)}</b></span><span className="signal-text"><span className="signal-dot" /> Stable telemetry</span></div>
       </section>
@@ -654,12 +654,12 @@ function JiraQueueSection() {
     <section className="panel animate-in">
       <SectionHeading
         eyebrow="Jira work queue"
-        title="Live tickets"
+        title="Upcoming Task"
         action={<span className="muted-label">Source: {jira.data?.source ?? '…'}</span>}
       />
       {jira.isLoading ? <LoadingRows count={3} /> : tickets.length ? <div className="activity-table">
         <div className="table-head"><span>Key</span><span>Summary</span><span>Status</span><span>Env</span><span>Assignee</span></div>
-        {tickets.map((t: JiraTicket) => <div className="table-row" key={t.id} data-testid={`row-jira-${t.key}`}><span className="font-mono"><b>{t.key}</b></span><span>{t.summary}</span><span><StatusPill value={t.status} /></span><span className="font-mono">{t.environment}</span><span>{t.assignee}<small>{t.updatedAt}</small></span></div>)}
+        {tickets.map((t: JiraTicket) => <div className="table-row" key={t.id} data-testid={`row-jira-${t.key}`}><span className="font-mono"><b>{t.key}</b></span><span>{t.summary}</span><span><StatusPill value={t.status} /></span><span className="font-mono">{t.environment}</span><span>{t.assignee}</span></div>)}
       </div> : <EmptyState title="No tickets" detail="Jira is not configured yet." icon={ClipboardCheck} />}
     </section>
   );

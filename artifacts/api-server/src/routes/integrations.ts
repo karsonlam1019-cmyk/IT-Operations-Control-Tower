@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { healthRegistry } from "../integrations/registry";
 import { deepseek, type RagAnswer } from "../integrations/deepseek";
-import { listJiraTickets } from "../integrations/jira";
+import { listJiraTickets, listJiraUpcomingTasks } from "../integrations/jira";
 import { listVendorSubmissions } from "../integrations/vendor";
 
 const router: IRouter = Router();
@@ -25,10 +25,14 @@ router.post("/rag/search", async (req, res) => {
   res.json(result);
 });
 
-// /api/jira/tickets — work queue from Jira (falls back to representative data)
+// /api/jira/tickets — upcoming, outstanding work from Jira
 router.get("/jira/tickets", async (_req, res) => {
-  const tickets = await listJiraTickets();
-  res.json({ tickets, source: "representative" });
+  const liveTickets = await listJiraUpcomingTasks();
+  if (liveTickets) {
+    res.json({ tickets: liveTickets, source: "Jira · next 30 days" });
+    return;
+  }
+  res.json({ tickets: await listJiraTickets(), source: "representative" });
 });
 
 // /api/vendor/submissions — vendor invoices/milestones via the vendor API

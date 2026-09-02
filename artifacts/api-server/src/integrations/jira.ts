@@ -23,6 +23,8 @@ export type JiraReleaseTask = {
   dueDate: string;
   priority: string;
   environment: string;
+  statusTicket: string;
+  staffMember: string;
 };
 
 export function getJiraConfig(): Partial<JiraConfig> {
@@ -102,6 +104,16 @@ function jiraValue(value: unknown): string {
   return "";
 }
 
+function findJiraFieldId(definitions: unknown, aliases: string[]): string | undefined {
+  if (!Array.isArray(definitions)) return undefined;
+  const field = definitions.find((candidate) => {
+    if (!candidate || typeof candidate !== "object") return false;
+    const record = candidate as Record<string, unknown>;
+    return aliases.includes(jiraValue(record.name).toLowerCase()) && typeof record.id === "string";
+  });
+  return field && typeof field === "object" ? jiraValue((field as Record<string, unknown>).id) : undefined;
+}
+
 export async function listJiraReleaseTasks(): Promise<JiraReleaseTask[] | null> {
   const config = getJiraConfig();
   if (!isJiraConfigured() || !config.baseUrl || !config.email || !config.apiToken) return null;
@@ -115,17 +127,17 @@ export async function listJiraReleaseTasks(): Promise<JiraReleaseTask[] | null> 
     });
     if (!fieldResponse.ok) return null;
     const definitions = await fieldResponse.json() as unknown;
-    const environmentField = Array.isArray(definitions)
-      ? definitions.find((field) => {
-        if (!field || typeof field !== "object") return false;
-        const record = field as Record<string, unknown>;
-        return jiraValue(record.name).toLowerCase() === "environment" && typeof record.id === "string";
-      })
-      : undefined;
-    const environmentFieldId = environmentField && typeof environmentField === "object"
-      ? (environmentField as Record<string, unknown>).id
-      : undefined;
-    const requestedFields = ["summary", "duedate", "priority", ...(typeof environmentFieldId === "string" ? [environmentFieldId] : [])];
+    const environmentFieldId = findJiraFieldId(definitions, ["environment"]);
+    const statusTicketFieldId = findJiraFieldId(definitions, ["status_ticket", "status ticket"]);
+    const staffMemberFieldId = findJiraFieldId(definitions, ["staff member"]);
+    const requestedFields = [...new Set([
+      "summary",
+      "duedate",
+      "priority",
+      ...(environmentFieldId ? [environmentFieldId] : []),
+      ...(statusTicketFieldId ? [statusTicketFieldId] : []),
+      ...(staffMemberFieldId ? [staffMemberFieldId] : []),
+    ])];
     const params = new URLSearchParams({
       jql: `project = "${config.projectKey ?? "SHIFT"}" ORDER BY updated DESC`,
       fields: requestedFields.join(","),
@@ -154,12 +166,53 @@ export async function listJiraReleaseTasks(): Promise<JiraReleaseTask[] | null> 
         summary: jiraValue(fields.summary) || key,
         dueDate: jiraValue(fields.duedate),
         priority: jiraValue(fields.priority),
-        environment: typeof environmentFieldId === "string" ? jiraValue(fields[environmentFieldId]) : "",
+        environment: environmentFieldId ? jiraValue(fields[environmentFieldId]) : "",
+        statusTicket: statusTicketFieldId ? jiraValue(fields[statusTicketFieldId]) : "",
+        staffMember: staffMemberFieldId ? jiraValue(fields[staffMemberFieldId]) : "",
       }];
     });
   } catch {
     return null;
   }
+}
+
+function normalizeEnvironment(value: string): JiraTicket["environment"] {
+  const normalized = value.trim().toUpperCase();
+  if (normalized === "PRO" || normalized.includes("PROD")) return "PROD";
+  if (normalized.includes("UAT")) return "UAT";
+  if (normalized.includes("SIT")) return "SIT";
+  return "STAGING";
+}
+
+function parseDateOnly(value: string): number | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (!match) return null;
+  const timestamp = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return Number.isNaN(timestamp) ? null : timestamp;
+}
+
+export async function listJiraUpcomingTasks(): Promise<JiraTicket[] | null> {
+  const tasks = await listJiraReleaseTasks();
+  if (!tasks) return null;
+  const today = new Date();
+  const start = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+  const end = start + (30 * 24 * 60 * 60 * 1000);
+  return tasks
+    .filter((task) => {
+      if (task.statusTicket.trim().toLowerCase() === "completed") return false;
+      const due = parseDateOnly(task.dueDate);
+      return due !== null && due >= start && due <= end;
+    })
+    .sort((a, b) => (parseDateOnly(a.dueDate) ?? 0) - (parseDateOnly(b.dueDate) ?? 0))
+    .map((task) => ({
+      id: task.key,
+      key: task.key,
+      summary: task.summary,
+      status: task.statusTicket || "—",
+      assignee: task.staffMember || "—",
+      environment: normalizeEnvironment(task.environment),
+      updatedAt: task.dueDate,
+    }));
 }
 
 export const jira = {
@@ -168,4 +221,5 @@ export const jira = {
   health: checkJiraHealth,
   listTickets: listJiraTickets,
   listReleaseTasks: listJiraReleaseTasks,
+  listUpcomingTasks: listJiraUpcomingTasks,
 };

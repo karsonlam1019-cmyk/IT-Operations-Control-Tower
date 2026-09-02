@@ -285,6 +285,10 @@ function isActiveStaffStatus(status: string): boolean {
   return status.trim().toLowerCase() === "active";
 }
 
+function isOutOfOfficeStatus(status: string): boolean {
+  return status.trim().toLowerCase() === "out of office";
+}
+
 async function writeOperationalAudit(action: string, target: string, actorId?: string) {
   const persisted = await recordAuditEvent(action, target, actorId);
   if (persisted) {
@@ -311,6 +315,14 @@ router.get("/dashboard/summary", async (_req, res) => {
   const checked = releaseGates.filter((item) => item.checked).length;
   const db = await loadDashboardStats();
   const jiraStaff = (await listSupabaseShiftSignals()) ?? (await loadShiftSignals());
+  const totalMembers = jiraStaff?.length ?? 0;
+  const outOfOfficeMembers = jiraStaff?.filter((member) => isOutOfOfficeStatus(member.status)).length ?? 0;
+  const inactiveMembers = jiraStaff?.filter((member) => member.signal?.trim().toLowerCase() === "inactive").length ?? 0;
+  const eligibleMembers = totalMembers - outOfOfficeMembers;
+  const pulseNumerator = Math.max(0, inactiveMembers - outOfOfficeMembers);
+  const systemPulse = jiraStaff && eligibleMembers > 0
+    ? Math.round((pulseNumerator / eligibleMembers) * 100)
+    : 0;
   res.json(GetDashboardSummaryResponse.parse({
     activeStaff: jiraStaff
       ? jiraStaff.filter((member) => isActiveStaffStatus(member.status)).length
@@ -319,7 +331,7 @@ router.get("/dashboard/summary", async (_req, res) => {
     pendingApprovals: db?.pendingApprovals ?? procurement.filter((item) => item.status.includes("Pending")).length,
     blockedVariances: db?.blockedVariances ?? procurement.filter((item) => item.status.includes("Blocked")).length,
     releaseReadiness: Math.round((checked / releaseGates.length) * 100),
-    systemPulse: 99.94,
+    systemPulse,
     lastSync: db ? `Live · ${new Date().toISOString()}` : "Live · refreshed 42s ago",
   }));
 });

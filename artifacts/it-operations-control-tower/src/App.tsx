@@ -680,7 +680,7 @@ function StaffPage() {
     const text = `${item.name} ${item.role} ${item.team} ${item.region}`.toLowerCase();
     const itemSignal = item.signal ?? item.status;
     return text.includes(search.toLowerCase()) && (signal === 'All' || itemSignal === signal);
-  }), [staff, search, signal]);
+  }).sort((a, b) => a.team.localeCompare(b.team, undefined, { sensitivity: 'base' }) || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })), [staff, search, signal]);
   const delegation = delegationQuery.data as DelegationStatus | undefined;
   const changeHeadLeave = () => {
     if (!delegation) return;

@@ -63,7 +63,9 @@ export type SupabaseShiftSignal = {
   role: string;
   team: string;
   region: string;
+  signal: string;
   status: string;
+  source: string;
   ticket: string;
   environment: string;
   eta: string;
@@ -79,7 +81,7 @@ export async function listSupabaseShiftSignals(): Promise<SupabaseShiftSignal[] 
   const cfg = getSupabaseConfig();
   if (!cfg.url || !cfg.serviceRoleKey) return null;
   const params = new URLSearchParams({
-    select: "jira_issue_key,staff_member,team,region,environment,signal,action,Process_Status,jira_updated_at",
+    select: "jira_issue_key,staff_member,team,region,environment,signal,action,Process_Status,jira_updated_at,updated_at",
     order: "jira_updated_at.desc.nullslast,jira_issue_key.asc",
   });
   try {
@@ -100,7 +102,8 @@ export async function listSupabaseShiftSignals(): Promise<SupabaseShiftSignal[] 
       const name = text(row.staff_member) || "Unassigned";
       const parts = name.trim().split(/\s+/).filter(Boolean);
       const initials = ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase();
-      const signal = text(row.signal) || text(row.action) || text(row.Process_Status) || "Unknown";
+       const signal = text(row.signal) || "Unknown";
+       const status = text(row.action) || text(row.Process_Status) || "Unknown";
       return [{
         id: text(row.jira_issue_key),
         name,
@@ -108,12 +111,14 @@ export async function listSupabaseShiftSignals(): Promise<SupabaseShiftSignal[] 
         role: "Jira SHIFT",
         team: text(row.team) || "Unassigned",
         region: text(row.region) || "—",
-        status: signal,
+         signal,
+         status,
+         source: "Synced from Jira",
         ticket: text(row.jira_issue_key),
         environment: text(row.environment) || "—",
         eta: "—",
-        updatedAt: text(row.jira_updated_at),
-        isStale: signal.toLowerCase().includes("stale"),
+         updatedAt: text(row.jira_updated_at) || text(row.updated_at),
+         isStale: `${signal} ${status}`.toLowerCase().includes("stale"),
       }];
     });
   } catch {

@@ -739,6 +739,8 @@ components:
         eta: { type: string }
         updatedAt: { type: string }
         isStale: { type: boolean }
+        signal: { type: string }
+        source: { type: string }
     StaffStatusUpdate:
       type: object
       required: [status]

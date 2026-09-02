@@ -30,8 +30,6 @@ import {
   MoreHorizontal,
   PackageCheck,
   PanelLeft,
-  PauseCircle,
-  Play,
   RefreshCw,
   Search,
   Send,
@@ -73,7 +71,6 @@ import {
   useSubmitInvoice,
   useSubmitProcurementReview,
   useToggleReleaseGate,
-  useUpdateStaffStatus,
   useUpdateHeadOfItLeave,
   type AuditLog,
   type BusinessUnitAllocation,
@@ -123,6 +120,7 @@ import { ProcurementPage as ProcurementWorkflowPage } from '@/procurement-workfl
 import { VendorPage } from '@/pages/VendorPage';
 
 const queryClient = new QueryClient();
+const STAFF_SYNC_INTERVAL_MS = 3 * 60 * 1000;
 
 type IconType = typeof LayoutDashboard;
 
@@ -522,7 +520,12 @@ function Shell({ children }: { children: ReactNode }) {
   const [location] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const staffQuery = useListStaff({
-    query: { queryKey: getListStaffQueryKey(), refetchInterval: 30000 },
+    query: {
+      queryKey: getListStaffQueryKey(),
+      refetchInterval: STAFF_SYNC_INTERVAL_MS,
+      refetchOnMount: 'always',
+      refetchIntervalInBackground: false,
+    },
   });
   const delegationQuery = useGetDelegationStatus({
     query: { queryKey: getGetDelegationStatusQueryKey(), refetchInterval: 15000 },
@@ -595,7 +598,7 @@ function MetricCard({ label, value, detail, accent = 'teal', icon: Icon }: { lab
 
 function DashboardPage() {
   const summaryQuery = useGetDashboardSummary({ query: { queryKey: getGetDashboardSummaryQueryKey(), refetchInterval: 30000 } });
-  const staffQuery = useListStaff({ query: { queryKey: getListStaffQueryKey(), refetchInterval: 30000 } });
+  const staffQuery = useListStaff({ query: { queryKey: getListStaffQueryKey(), refetchInterval: false, refetchOnMount: false } });
   const healthQuery = useHealthCheck({ query: { queryKey: getHealthCheckQueryKey(), refetchInterval: 30000 } });
   const summary = summaryQuery.data as DashboardSummary | undefined;
   const staff = (staffQuery.data as StaffMember[] | undefined) ?? [];
@@ -655,28 +658,21 @@ function JiraQueueSection() {
 }
 
 function StaffPage() {
-  const query = useListStaff({ query: { queryKey: getListStaffQueryKey(), refetchInterval: 15000 } });
+  const query = useListStaff({ query: { queryKey: getListStaffQueryKey(), refetchInterval: false, refetchOnMount: false } });
   const delegationQuery = useGetDelegationStatus({
     query: { queryKey: getGetDelegationStatusQueryKey(), refetchInterval: 15000 },
   });
-  const update = useUpdateStaffStatus();
   const updateLeave = useUpdateHeadOfItLeave();
   const client = useQueryClient();
   const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('All');
+  const [signal, setSignal] = useState('All');
   const staff = (query.data as StaffMember[] | undefined) ?? [];
-  const statuses = ['All', ...Array.from(new Set(staff.map(item => item.status).filter(Boolean)))];
+  const signals = ['All', ...Array.from(new Set(staff.map(item => item.signal ?? item.status).filter(Boolean)))];
   const filtered = useMemo(() => staff.filter(item => {
     const text = `${item.name} ${item.role} ${item.team} ${item.region}`.toLowerCase();
-    return text.includes(search.toLowerCase()) && (status === 'All' || item.status === status);
-  }), [staff, search, status]);
-  const changeStatus = (member: StaffMember) => {
-    const next = member.status.toLowerCase().includes('active') ? 'Away' : 'Active';
-    update.mutate({ id: member.id, data: { status: next } }, {
-      onSuccess: () => { void client.invalidateQueries({ queryKey: getListStaffQueryKey() }); toast.success(`${member.name} marked ${next.toLowerCase()}`); },
-      onError: () => toast.error('Status update failed'),
-    });
-  };
+    const itemSignal = item.signal ?? item.status;
+    return text.includes(search.toLowerCase()) && (signal === 'All' || itemSignal === signal);
+  }), [staff, search, signal]);
   const delegation = delegationQuery.data as DelegationStatus | undefined;
   const changeHeadLeave = () => {
     if (!delegation) return;
@@ -707,12 +703,12 @@ function StaffPage() {
         {updateLeave.isPending ? 'Updating…' : delegation?.headOfIt.onLeave ? 'Return from leave' : 'Mark Head of IT on leave'}
       </button>
     </section>
-    <div className="toolbar panel"><div className="search-field"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search people, teams, regions" data-testid="input-search-staff" /></div><div className="filter-group"><Filter size={14} /><select value={status} onChange={e => setStatus(e.target.value)} data-testid="select-staff-status">{statuses.map(value => <option value={value} key={value}>{value}</option>)}</select></div><span className="toolbar-count font-mono">{filtered.length} / {staff.length} visible</span></div>
+    <div className="toolbar panel"><div className="search-field"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search people, teams, regions" data-testid="input-search-staff" /></div><div className="filter-group"><Filter size={14} /><span className="filter-label">Filter by signal</span><select value={signal} onChange={e => setSignal(e.target.value)} aria-label="Filter by signal" data-testid="select-staff-signal">{signals.map(value => <option value={value} key={value}>{value}</option>)}</select></div><span className="toolbar-count font-mono">{filtered.length} / {staff.length} visible</span></div>
     <section className="panel">
       <SectionHeading eyebrow="Coverage board" title="Shift signal" action={<div className="legend"><span><i className="legend-dot live" /> Live</span><span><i className="legend-dot stale" /> Stale</span></div>} />
       {query.isError ? <ErrorState onRetry={() => void query.refetch()} /> : query.isLoading ? <LoadingRows count={6} /> : !filtered.length ? <EmptyState title={staff.length ? 'No matching staff' : 'No staff feed available'} detail={staff.length ? 'Adjust the search or status filter.' : 'Once monitored staff are connected, their shift signal will appear here.'} icon={UsersRound} /> : <div className="staff-table">
-        <div className="table-head staff-head"><span>Staff member</span><span>Team / region</span><span>Ticket</span><span>Environment</span><span>Signal</span><span>Action</span></div>
-        {filtered.map(member => <div className="table-row staff-row" key={member.id} data-testid={`row-staff-${member.id}`}><span className="person-cell"><span className={`avatar ${member.isStale ? 'avatar-stale' : ''}`}>{member.initials}</span><span><b>{member.name}</b><small>{member.role}</small></span></span><span><b>{member.team}</b><small>{member.region}</small></span><span className="font-mono">{member.ticket || 'No ticket'}</span><span className="font-mono">{member.environment || '—'}</span><span><StatusPill value={member.isStale ? 'Stale' : member.status} testId={`status-staff-${member.id}`} /><small className="table-subtext">Updated {formatTime(member.updatedAt)}</small></span>{member.role === 'Jira SHIFT' ? <span className="muted-label">Synced from Jira</span> : <button className="row-action" onClick={() => changeStatus(member)} disabled={update.isPending} data-testid={`button-toggle-status-${member.id}`}>{member.status.toLowerCase().includes('active') ? <PauseCircle size={15} /> : <Play size={15} />}{member.status.toLowerCase().includes('active') ? 'Set away' : 'Set active'}</button>}</div>)}
+        <div className="table-head staff-head"><span>Staff Member</span><span>Team</span><span>Region</span><span>Signal</span><span>Status</span><span>Source</span></div>
+        {filtered.map(member => <div className="table-row staff-row" key={member.id} data-testid={`row-staff-${member.id}`}><span className="person-cell"><span className={`avatar ${member.isStale ? 'avatar-stale' : ''}`}>{member.initials}</span><span><b>{member.name}</b></span></span><span>{member.team}</span><span>{member.region}</span><span><StatusPill value={member.signal ?? 'Unknown'} testId={`signal-staff-${member.id}`} /></span><span><StatusPill value={member.status} testId={`status-staff-${member.id}`} /><small className="table-subtext">Updated {formatTime(member.updatedAt)}</small></span><span className="muted-label">{member.source ?? '—'}</span></div>)}
       </div>}
     </section>
   </div>;

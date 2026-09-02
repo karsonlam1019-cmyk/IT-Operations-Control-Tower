@@ -47,7 +47,9 @@ export type RuntimeStaffMember = {
   role: string;
   team: string;
   region: string;
+  signal?: string;
   status: string;
+  source?: string;
   ticket: string;
   environment: string;
   eta: string;
@@ -113,7 +115,9 @@ export async function loadShiftSignals(): Promise<RuntimeStaffMember[] | null> {
          'Jira SHIFT' AS role,
          COALESCE(s.team, 'Unassigned') AS team,
          COALESCE(s.region, '—') AS region,
-         COALESCE(NULLIF(s.signal, ''), NULLIF(s."Process_Status", ''), NULLIF(s.action, ''), 'Unknown') AS status,
+         COALESCE(NULLIF(s.signal, ''), 'Unknown') AS signal,
+         COALESCE(NULLIF(s.action, ''), NULLIF(s."Process_Status", ''), 'Unknown') AS status,
+         'Synced from Jira' AS source,
          s.jira_issue_key AS ticket,
          COALESCE(s.environment, '—') AS environment,
          '—' AS eta,
@@ -134,7 +138,9 @@ export async function loadShiftSignals(): Promise<RuntimeStaffMember[] | null> {
         role: str(row.role),
         team: str(row.team),
         region: str(row.region),
+        signal: str(row.signal),
         status: str(row.status),
+        source: str(row.source),
         ticket: str(row.ticket),
         environment: str(row.environment),
         eta: str(row.eta),

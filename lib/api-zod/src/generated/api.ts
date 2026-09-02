@@ -46,7 +46,9 @@ export const ListStaffResponseItem = zod.object({
   "environment": zod.string(),
   "eta": zod.string(),
   "updatedAt": zod.string(),
-  "isStale": zod.boolean()
+  "isStale": zod.boolean(),
+  "signal": zod.string().optional(),
+  "source": zod.string().optional()
 })
 export const ListStaffResponse = zod.array(ListStaffResponseItem)
 
@@ -74,7 +76,9 @@ export const UpdateStaffStatusResponse = zod.object({
   "environment": zod.string(),
   "eta": zod.string(),
   "updatedAt": zod.string(),
-  "isStale": zod.boolean()
+  "isStale": zod.boolean(),
+  "signal": zod.string().optional(),
+  "source": zod.string().optional()
 })
 
 

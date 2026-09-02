@@ -245,6 +245,7 @@ const COLUMN_ALIASES: Record<ShiftField, string[]> = {
   signal: ["signal"],
   action: ["action"],
   processStatus: ["process_status"],
+  priority: ["priority"],
 };
 
 const IDENTIFIER_ALIASES = ["jira_issue_key"];
@@ -256,6 +257,7 @@ const JIRA_FIELD_ALIASES: Record<ShiftField, string[]> = {
   signal: ["signal"],
   action: ["status"],
   processStatus: ["status_ticket"],
+  priority: ["priority"],
 };
 
 function resolveColumn(columns: string[], semantic: string, aliases: string[]): string {

@@ -66,6 +66,7 @@ export type SupabaseShiftSignal = {
   signal: string;
   status: string;
   source: string;
+  priority: string;
   ticket: string;
   environment: string;
   eta: string;
@@ -81,7 +82,7 @@ export async function listSupabaseShiftSignals(): Promise<SupabaseShiftSignal[] 
   const cfg = getSupabaseConfig();
   if (!cfg.url || !cfg.serviceRoleKey) return null;
   const params = new URLSearchParams({
-    select: "jira_issue_key,staff_member,team,region,environment,signal,action,Process_Status,jira_updated_at,updated_at",
+    select: "jira_issue_key,staff_member,team,region,environment,signal,action,Process_Status,priority,jira_updated_at,updated_at",
     order: "jira_updated_at.desc.nullslast,jira_issue_key.asc",
   });
   try {
@@ -114,6 +115,7 @@ export async function listSupabaseShiftSignals(): Promise<SupabaseShiftSignal[] 
          signal,
          status,
          source: "Synced from Jira",
+         priority: text(row.priority) || "—",
         ticket: text(row.jira_issue_key),
         environment: text(row.environment) || "—",
         eta: "—",

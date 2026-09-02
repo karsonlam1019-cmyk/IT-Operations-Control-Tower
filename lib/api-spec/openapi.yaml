@@ -741,6 +741,7 @@ components:
         isStale: { type: boolean }
         signal: { type: string }
         source: { type: string }
+        priority: { type: string }
     StaffStatusUpdate:
       type: object
       required: [status]

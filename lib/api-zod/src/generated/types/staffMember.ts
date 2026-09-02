@@ -21,4 +21,5 @@ export interface StaffMember {
   isStale: boolean;
   signal?: string;
   source?: string;
+  priority?: string;
 }

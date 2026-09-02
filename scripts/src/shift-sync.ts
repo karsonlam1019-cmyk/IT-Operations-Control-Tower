@@ -5,7 +5,8 @@ export type ShiftField =
   | "environment"
   | "signal"
   | "action"
-  | "processStatus";
+  | "processStatus"
+  | "priority";
 
 export type ShiftMapping = {
   identifier: {
@@ -28,6 +29,7 @@ export type NormalizedShift = {
   signal: string;
   action: string;
   processStatus: string;
+  priority: string;
   updatedAt: string;
 };
 
@@ -43,6 +45,7 @@ export type NormalizationIssue = {
     | "missing_signal"
     | "missing_action"
     | "missing_process_status"
+    | "missing_priority"
     | "missing_updated_at"
     | "invalid_updated_at"
     | "invalid_record";
@@ -104,6 +107,7 @@ export const SHIFT_FIELDS: ShiftField[] = [
   "signal",
   "action",
   "processStatus",
+  "priority",
 ];
 
 function asRecord(value: unknown): JsonRecord | null {
@@ -224,6 +228,7 @@ function normalizeRow(
       signal: comparableText(values.signal),
       action: comparableText(values.action),
       processStatus: comparableText(values.processStatus),
+      priority: comparableText(values.priority),
       updatedAt: normalizedUpdatedAt,
     },
   };

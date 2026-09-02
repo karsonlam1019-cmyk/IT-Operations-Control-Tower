@@ -17,12 +17,20 @@ export type JiraTicket = {
   updatedAt: string;
 };
 
+export type JiraReleaseTask = {
+  key: string;
+  summary: string;
+  dueDate: string;
+  priority: string;
+  environment: string;
+};
+
 export function getJiraConfig(): Partial<JiraConfig> {
   return {
     baseUrl: readEnv("JIRA_BASE_URL"),
     email: readEnv("JIRA_EMAIL"),
     apiToken: readEnv("JIRA_API_TOKEN"),
-    projectKey: readEnv("JIRA_PROJECT_KEY") ?? "IT",
+    projectKey: readEnv("JIRA_PROJECT_KEY") ?? "SHIFT",
   };
 }
 
@@ -80,9 +88,84 @@ export async function listJiraTickets(): Promise<JiraTicket[]> {
   return FALLBACK_TICKETS;
 }
 
+function jiraValue(value: unknown): string {
+  if (Array.isArray(value)) return jiraValue(value[0]);
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string" || typeof value === "number") return String(value).trim();
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    for (const key of ["value", "name", "displayName"]) {
+      const candidate = record[key];
+      if (typeof candidate === "string" || typeof candidate === "number") return String(candidate).trim();
+    }
+  }
+  return "";
+}
+
+export async function listJiraReleaseTasks(): Promise<JiraReleaseTask[] | null> {
+  const config = getJiraConfig();
+  if (!isJiraConfigured() || !config.baseUrl || !config.email || !config.apiToken) return null;
+  try {
+    const fieldResponse = await fetch(`${config.baseUrl}/rest/api/3/field`, {
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${config.email}:${config.apiToken}`).toString("base64")}`,
+        Accept: "application/json",
+      },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!fieldResponse.ok) return null;
+    const definitions = await fieldResponse.json() as unknown;
+    const environmentField = Array.isArray(definitions)
+      ? definitions.find((field) => {
+        if (!field || typeof field !== "object") return false;
+        const record = field as Record<string, unknown>;
+        return jiraValue(record.name).toLowerCase() === "environment" && typeof record.id === "string";
+      })
+      : undefined;
+    const environmentFieldId = environmentField && typeof environmentField === "object"
+      ? (environmentField as Record<string, unknown>).id
+      : undefined;
+    const requestedFields = ["summary", "duedate", "priority", ...(typeof environmentFieldId === "string" ? [environmentFieldId] : [])];
+    const params = new URLSearchParams({
+      jql: `project = "${config.projectKey ?? "SHIFT"}" ORDER BY updated DESC`,
+      fields: requestedFields.join(","),
+      maxResults: "100",
+    });
+    const response = await fetch(`${config.baseUrl}/rest/api/3/search/jql?${params.toString()}`, {
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${config.email}:${config.apiToken}`).toString("base64")}`,
+        Accept: "application/json",
+      },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok) return null;
+    const payload = await response.json() as { issues?: unknown };
+    if (!Array.isArray(payload.issues)) return null;
+    return payload.issues.flatMap((issue): JiraReleaseTask[] => {
+      if (!issue || typeof issue !== "object") return [];
+      const record = issue as Record<string, unknown>;
+      const fields = record.fields && typeof record.fields === "object"
+        ? record.fields as Record<string, unknown>
+        : {};
+      const key = jiraValue(record.key);
+      if (!key) return [];
+      return [{
+        key,
+        summary: jiraValue(fields.summary) || key,
+        dueDate: jiraValue(fields.duedate),
+        priority: jiraValue(fields.priority),
+        environment: typeof environmentFieldId === "string" ? jiraValue(fields[environmentFieldId]) : "",
+      }];
+    });
+  } catch {
+    return null;
+  }
+}
+
 export const jira = {
   config: getJiraConfig,
   isConfigured: isJiraConfigured,
   health: checkJiraHealth,
   listTickets: listJiraTickets,
+  listReleaseTasks: listJiraReleaseTasks,
 };

@@ -68,6 +68,7 @@ export type SupabaseShiftSignal = {
   source: string;
   priority: string;
   dueDate: string;
+  tick: boolean;
   ticket: string;
   environment: string;
   eta: string;
@@ -83,7 +84,7 @@ export async function listSupabaseShiftSignals(): Promise<SupabaseShiftSignal[] 
   const cfg = getSupabaseConfig();
   if (!cfg.url || !cfg.serviceRoleKey) return null;
   const params = new URLSearchParams({
-    select: "jira_issue_key,staff_member,team,region,environment,signal,action,Process_Status,priority,due_date,jira_updated_at,updated_at",
+    select: "jira_issue_key,staff_member,team,region,environment,signal,action,Process_Status,priority,due_date,Tick,jira_updated_at,updated_at",
     order: "jira_updated_at.desc.nullslast,jira_issue_key.asc",
   });
   try {
@@ -118,6 +119,7 @@ export async function listSupabaseShiftSignals(): Promise<SupabaseShiftSignal[] 
          source: "Synced from Jira",
          priority: text(row.priority) || "—",
          dueDate: text(row.due_date) || text(row["Due date"]) || "—",
+         tick: row.Tick === true || text(row.Tick).toLowerCase() === "true" || text(row.Tick) === "1",
         ticket: text(row.jira_issue_key),
         environment: text(row.environment) || "—",
         eta: "—",
@@ -130,9 +132,32 @@ export async function listSupabaseShiftSignals(): Promise<SupabaseShiftSignal[] 
   }
 }
 
+export async function updateSupabaseShiftTick(id: string, checked: boolean): Promise<boolean> {
+  const cfg = getSupabaseConfig();
+  if (!cfg.url || !cfg.serviceRoleKey) return false;
+  const params = new URLSearchParams({ jira_issue_key: `eq.${id}` });
+  try {
+    const response = await fetch(`${cfg.url.replace(/\/+$/, "")}/rest/v1/shifts?${params.toString()}`, {
+      method: "PATCH",
+      headers: {
+        apikey: cfg.serviceRoleKey,
+        Authorization: `Bearer ${cfg.serviceRoleKey}`,
+        "Content-Type": "application/json",
+        Prefer: "return=minimal",
+      },
+      body: JSON.stringify({ Tick: checked }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 export const supabase = {
   config: getSupabaseConfig,
   isConfigured: isSupabaseConfigured,
   health: checkSupabaseHealth,
   listShiftSignals: listSupabaseShiftSignals,
+  updateShiftTick: updateSupabaseShiftTick,
 };

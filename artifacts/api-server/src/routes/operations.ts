@@ -65,6 +65,7 @@ import {
   UpdateHeadOfItLeaveResponse,
 } from "@workspace/api-zod";
 import { deepseek } from "../integrations/deepseek";
+import { listJiraReleaseTasks } from "../integrations/jira";
 import {
   approveProcurement,
   advanceProcurementStatus,
@@ -98,7 +99,7 @@ import {
   recordAuditEvent,
 } from "../lib/db-runtime";
 import { resolveVendorPortalIdentity, type VendorPortalIdentity } from "../integrations/vendor";
-import { listSupabaseShiftSignals } from "../integrations/supabase";
+import { listSupabaseShiftSignals, updateSupabaseShiftTick } from "../integrations/supabase";
 import {
   CircuitBreaker,
   CircuitOpenError,
@@ -123,14 +124,51 @@ const staff = [
   { id: "s-008", name: "Marcus Lau", initials: "ML", role: "Cloud Engineer", team: "Cloud Operations", region: "HK", status: "On Call - Incidents", ticket: "INC-4817", environment: "PROD", eta: "1 hr 5 min", updatedAt: "5 min ago", isStale: false },
 ];
 
-const releaseGates = [
-  { id: "g-01", environment: "SIT", title: "Regression suite passed", owner: "QA Automation", due: "Completed 09:12", checked: true, risk: "Low" },
-  { id: "g-02", environment: "SIT", title: "Security scan exceptions reviewed", owner: "Cyber Defence", due: "Completed 09:34", checked: true, risk: "Low" },
-  { id: "g-03", environment: "UAT", title: "Business owner sign-off", owner: "Enterprise Apps", due: "Today 15:00", checked: false, risk: "Medium" },
-  { id: "g-04", environment: "UAT", title: "Data reconciliation verified", owner: "Data Platforms", due: "Today 16:30", checked: true, risk: "Low" },
-  { id: "g-05", environment: "PROD", title: "Rollback plan attached", owner: "Release Engineering", due: "Today 17:00", checked: true, risk: "High" },
-  { id: "g-06", environment: "PROD", title: "Change Advisory Board approval", owner: "Head of IT", due: "Today 17:30", checked: false, risk: "Critical" },
+const demoReleaseGates = [
+  { id: "g-01", environment: "SIT", title: "Regression suite passed", summary: "Regression suite passed", owner: "QA Automation", due: "Completed 09:12", dueDate: "Completed 09:12", checked: true, risk: "Low", priority: "Low" },
+  { id: "g-02", environment: "SIT", title: "Security scan exceptions reviewed", summary: "Security scan exceptions reviewed", owner: "Cyber Defence", due: "Completed 09:34", dueDate: "Completed 09:34", checked: true, risk: "Low", priority: "Low" },
+  { id: "g-03", environment: "UAT", title: "Business owner sign-off", summary: "Business owner sign-off", owner: "Enterprise Apps", due: "Today 15:00", dueDate: "Today 15:00", checked: false, risk: "Medium", priority: "Medium" },
+  { id: "g-04", environment: "UAT", title: "Data reconciliation verified", summary: "Data reconciliation verified", owner: "Data Platforms", due: "Today 16:30", dueDate: "Today 16:30", checked: true, risk: "Low", priority: "Low" },
+  { id: "g-05", environment: "PROD", title: "Rollback plan attached", summary: "Rollback plan attached", owner: "Release Engineering", due: "Today 17:00", dueDate: "Today 17:00", checked: true, risk: "High", priority: "High" },
+  { id: "g-06", environment: "PROD", title: "Change Advisory Board approval", summary: "Change Advisory Board approval", owner: "Head of IT", due: "Today 17:30", dueDate: "Today 17:30", checked: false, risk: "Critical", priority: "Critical" },
 ];
+
+function releaseEnvironment(value: string): string {
+  const normalized = value.trim().toUpperCase();
+  if (normalized === "PRO" || normalized.includes("PROD")) return "PROD";
+  if (normalized.includes("UAT")) return "UAT";
+  if (normalized.includes("SIT")) return "SIT";
+  if (normalized.includes("STAGING")) return "STAGING";
+  return normalized || "UNASSIGNED";
+}
+
+async function loadLiveReleaseGates() {
+  const [jiraTasks, shifts] = await Promise.all([listJiraReleaseTasks(), listSupabaseShiftSignals()]);
+  if (!jiraTasks || !shifts) return null;
+  const shiftsById = new Map(shifts.map((shift) => [shift.id, shift]));
+  return jiraTasks.map((task) => {
+    const shift = shiftsById.get(task.key);
+    const summary = task.summary || task.key;
+    const dueDate = task.dueDate || shift?.dueDate || "—";
+    const priority = task.priority || shift?.priority || "—";
+    return {
+      id: task.key,
+      environment: releaseEnvironment(task.environment || shift?.environment || ""),
+      title: summary,
+      summary,
+      owner: shift?.name || "Jira task",
+      due: dueDate,
+      dueDate,
+      checked: shift?.tick === true,
+      risk: priority,
+      priority,
+    };
+  });
+}
+
+async function getReleaseGates() {
+  return (await loadLiveReleaseGates()) ?? demoReleaseGates;
+}
 
 const procurement = [
   { id: "p-01", prNumber: "PR-2026-0842", poNumber: "PO-2026-0611", vendor: "Nimbus Cloud Services", region: "HK", amount: 428000, currency: "HKD", hkdAmount: 428000, status: "Pending L2 Approval", match: "Matched", createdAt: "28 Aug 2026, 09:18" },
@@ -268,6 +306,7 @@ async function writeOperationalAudit(action: string, target: string, actorId?: s
 }
 
 router.get("/dashboard/summary", async (_req, res) => {
+  const releaseGates = await getReleaseGates();
   const checked = releaseGates.filter((item) => item.checked).length;
   const db = await loadDashboardStats();
   const jiraStaff = (await listSupabaseShiftSignals()) ?? (await loadShiftSignals());
@@ -354,7 +393,8 @@ router.patch("/governance/delegation/leave", async (req, res) => {
   res.json(UpdateHeadOfItLeaveResponse.parse(demoDelegationStatus()));
 });
 
-router.get("/release-gates", (_req, res) => {
+router.get("/release-gates", async (_req, res) => {
+  const releaseGates = await getReleaseGates();
   res.json(ListReleaseGatesResponse.parse(releaseGates));
 });
 
@@ -364,12 +404,23 @@ router.patch("/release-gates/:id/check", async (req, res) => {
     res.status(400).json({ error: "Invalid release gate" });
     return;
   }
+  const liveGates = await loadLiveReleaseGates();
+  const releaseGates = liveGates ?? demoReleaseGates;
   const gate = releaseGates.find((item) => item.id === params.data.id);
   if (!gate) {
     res.status(404).json({ error: "Release gate not found" });
     return;
   }
-  gate.checked = !gate.checked;
+  const nextChecked = !gate.checked;
+  if (liveGates) {
+    const persisted = await updateSupabaseShiftTick(gate.id, nextChecked);
+    if (!persisted) {
+      res.status(502).json({ error: "Release gate checkbox could not be saved to Supabase" });
+      return;
+    }
+  } else {
+    gate.checked = nextChecked;
+  }
   await writeOperationalAudit(
     gate.checked ? "Completed release gate" : "Reopened release gate",
     `release-gate:${gate.id}`,

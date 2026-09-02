@@ -750,15 +750,18 @@ components:
         status: { type: string }
     ReleaseGate:
       type: object
-      required: [id, environment, title, owner, due, checked, risk]
+      required: [id, environment, title, summary, owner, due, dueDate, checked, risk, priority]
       properties:
         id: { type: string }
         environment: { type: string }
         title: { type: string }
+        summary: { type: string }
         owner: { type: string }
         due: { type: string }
+        dueDate: { type: string }
         checked: { type: boolean }
         risk: { type: string }
+        priority: { type: string }
     ProcurementRecord:
       type: object
       required: [id, prNumber, poNumber, vendor, region, amount, currency, hkdAmount, status, match, createdAt]

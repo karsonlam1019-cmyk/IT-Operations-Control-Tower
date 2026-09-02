@@ -10,8 +10,11 @@ export interface ReleaseGate {
   id: string;
   environment: string;
   title: string;
+  summary: string;
   owner: string;
   due: string;
+  dueDate: string;
   checked: boolean;
   risk: string;
+  priority: string;
 }

@@ -143,10 +143,13 @@ export const ListReleaseGatesResponseItem = zod.object({
   "id": zod.string(),
   "environment": zod.string(),
   "title": zod.string(),
+  "summary": zod.string(),
   "owner": zod.string(),
   "due": zod.string(),
+  "dueDate": zod.string(),
   "checked": zod.boolean(),
-  "risk": zod.string()
+  "risk": zod.string(),
+  "priority": zod.string()
 })
 export const ListReleaseGatesResponse = zod.array(ListReleaseGatesResponseItem)
 
@@ -162,10 +165,13 @@ export const ToggleReleaseGateResponse = zod.object({
   "id": zod.string(),
   "environment": zod.string(),
   "title": zod.string(),
+  "summary": zod.string(),
   "owner": zod.string(),
   "due": zod.string(),
+  "dueDate": zod.string(),
   "checked": zod.boolean(),
-  "risk": zod.string()
+  "risk": zod.string(),
+  "priority": zod.string()
 })
 
 

@@ -35,6 +35,7 @@ export interface StaffMember {
   signal?: string;
   source?: string;
   priority?: string;
+  dueDate?: string;
 }
 
 export interface StaffStatusUpdate {

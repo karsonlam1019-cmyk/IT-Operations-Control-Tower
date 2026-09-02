@@ -49,7 +49,8 @@ export const ListStaffResponseItem = zod.object({
   "isStale": zod.boolean(),
   "signal": zod.string().optional(),
   "source": zod.string().optional(),
-  "priority": zod.string().optional()
+  "priority": zod.string().optional(),
+  "dueDate": zod.string().optional()
 })
 export const ListStaffResponse = zod.array(ListStaffResponseItem)
 
@@ -80,7 +81,8 @@ export const UpdateStaffStatusResponse = zod.object({
   "isStale": zod.boolean(),
   "signal": zod.string().optional(),
   "source": zod.string().optional(),
-  "priority": zod.string().optional()
+  "priority": zod.string().optional(),
+  "dueDate": zod.string().optional()
 })
 
 

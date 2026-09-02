@@ -742,6 +742,7 @@ components:
         signal: { type: string }
         source: { type: string }
         priority: { type: string }
+        dueDate: { type: string }
     StaffStatusUpdate:
       type: object
       required: [status]

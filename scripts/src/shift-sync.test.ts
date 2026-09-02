@@ -13,6 +13,7 @@ const mapping: ShiftMapping = {
     action: { supabaseColumn: "action", jiraField: "status" },
     processStatus: { supabaseColumn: "Process_Status", jiraField: "status_ticket" },
     priority: { supabaseColumn: "priority", jiraField: "priority" },
+    dueDate: { supabaseColumn: "due_date", jiraField: "duedate" },
   },
   updatedAt: { supabaseColumn: "jira_updated_at", jiraField: "updated" },
 };
@@ -33,6 +34,7 @@ function jiraIssue(
       status: { name: "In Progress" },
       status_ticket: "Open",
       priority: { name: "High" },
+      duedate: "2026-09-15",
       updated: "2026-09-02T08:00:00Z",
       ...overrides,
     },
@@ -53,6 +55,7 @@ function supabaseRow(
     action: "In Progress",
     Process_Status: "Open",
     priority: "High",
+    due_date: "2026-09-15",
     jira_updated_at: "2026-09-02T08:00:00Z",
     ...overrides,
   };

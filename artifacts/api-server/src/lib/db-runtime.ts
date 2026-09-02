@@ -51,6 +51,7 @@ export type RuntimeStaffMember = {
   status: string;
   source?: string;
   priority?: string;
+  dueDate?: string;
   ticket: string;
   environment: string;
   eta: string;
@@ -120,6 +121,7 @@ export async function loadShiftSignals(): Promise<RuntimeStaffMember[] | null> {
          COALESCE(NULLIF(s.action, ''), NULLIF(s."Process_Status", ''), 'Unknown') AS status,
          'Synced from Jira' AS source,
          COALESCE(NULLIF(s.priority, ''), '—') AS priority,
+         COALESCE(NULLIF(s.due_date::text, ''), '—') AS due_date,
          s.jira_issue_key AS ticket,
          COALESCE(s.environment, '—') AS environment,
          '—' AS eta,
@@ -144,6 +146,7 @@ export async function loadShiftSignals(): Promise<RuntimeStaffMember[] | null> {
         status: str(row.status),
         source: str(row.source),
         priority: str(row.priority),
+        dueDate: str(row.due_date),
         ticket: str(row.ticket),
         environment: str(row.environment),
         eta: str(row.eta),

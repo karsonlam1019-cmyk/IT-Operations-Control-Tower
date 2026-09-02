@@ -173,6 +173,30 @@ function formatDate(value?: string) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
+type SyncFailureCategory = 'CONFIGURATION' | 'JIRA' | 'SUPABASE' | 'UNKNOWN';
+
+const syncFailureMessages: Record<SyncFailureCategory, string> = {
+  CONFIGURATION: 'Jira sync is not configured. Ask an administrator to configure the server integration.',
+  JIRA: 'Jira is unavailable. Check Jira status and try again.',
+  SUPABASE: 'Shift data could not be saved. Check the data service and try again.',
+  UNKNOWN: 'Jira sync failed unexpectedly. Check the integration logs and try again.',
+};
+
+const JIRA_SYNC_INTERVAL_MS = 5 * 60 * 1000;
+
+function getSyncFailureMessage(error: unknown) {
+  if (error && typeof error === 'object' && 'data' in error) {
+    const data = (error as { data?: unknown }).data;
+    if (data && typeof data === 'object' && 'category' in data) {
+      const category = (data as { category?: unknown }).category;
+      if (typeof category === 'string' && category in syncFailureMessages) {
+        return syncFailureMessages[category as SyncFailureCategory];
+      }
+    }
+  }
+  return 'Jira sync is unavailable. Check the integration status and try again.';
+}
+
 function exportDate() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -684,10 +708,14 @@ function StaffPage() {
   const delegationQuery = useGetDelegationStatus({
     query: { queryKey: getGetDelegationStatusQueryKey(), refetchInterval: 15000 },
   });
+  const syncJira = useSyncStaffJira();
   const updateLeave = useUpdateHeadOfItLeave();
   const client = useQueryClient();
   const [search, setSearch] = useState('');
   const [signal, setSignal] = useState('All');
+  const [syncFailure, setSyncFailure] = useState<string | null>(null);
+  const syncJiraRef = useRef(syncJira);
+  const syncInFlightRef = useRef(false);
   const staff = (query.data as StaffMember[] | undefined) ?? [];
   const signals = ['All', ...Array.from(new Set(staff.map(item => item.signal ?? item.status).filter(Boolean)))];
   const filtered = useMemo(() => staff.filter(item => {
@@ -708,9 +736,11 @@ function StaffPage() {
       onError: () => toast.error('Could not update Head of IT leave status'),
     });
   };
+
   useEffect(() => {
     syncJiraRef.current = syncJira;
   }, [syncJira]);
+
   const runJiraSync = useCallback(() => {
     if (syncInFlightRef.current || syncJiraRef.current.isPending) return;
     syncInFlightRef.current = true;
@@ -730,6 +760,7 @@ function StaffPage() {
       },
     });
   }, [client]);
+
   const autoSyncStartedRef = useRef(false);
   useEffect(() => {
     if (!autoSyncStartedRef.current) {
@@ -758,7 +789,17 @@ function StaffPage() {
     </section>
     <div className="toolbar panel"><div className="search-field"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search people, teams, regions" data-testid="input-search-staff" /></div><div className="filter-group"><Filter size={14} /><select value={signal} onChange={e => setSignal(e.target.value)} aria-label="Signal" data-testid="select-staff-signal">{signals.map(value => <option value={value} key={value}>{value}</option>)}</select></div><span className="toolbar-count font-mono">{filtered.length} / {staff.length} visible</span></div>
     <section className="panel">
-      <SectionHeading eyebrow="Coverage board" title="Shift signal" />
+       <SectionHeading
+         eyebrow="Coverage board"
+         title="Shift signal"
+         action={
+           <button className="button button-outline" onClick={runJiraSync} disabled={syncJira.isPending} data-testid="button-sync-jira">
+             <RefreshCw size={14} className={syncJira.isPending ? 'animate-spin' : ''} />
+             {syncJira.isPending ? 'Syncing Jira…' : 'Sync Jira'}
+           </button>
+         }
+       />
+       {syncFailure && <div className="error-state" role="alert" data-testid="sync-error"><AlertCircle size={18} /><div><strong>Jira sync unsuccessful</strong><p>{syncFailure}</p></div><button className="button button-quiet" onClick={runJiraSync} disabled={syncJira.isPending} data-testid="button-retry-sync"><RefreshCw size={14} /> Retry</button></div>}
       {query.isError ? <ErrorState onRetry={() => void query.refetch()} /> : query.isLoading ? <LoadingRows count={6} /> : !filtered.length ? <EmptyState title={staff.length ? 'No matching staff' : 'No staff feed available'} detail={staff.length ? 'Adjust the search or status filter.' : 'Once monitored staff are connected, their shift signal will appear here.'} icon={UsersRound} /> : <div className="staff-table">
         <div className="table-head staff-head"><span>Staff Member</span><span>Team</span><span>Region</span><span>Signal</span><span>Status</span><span>Source</span></div>
         {filtered.map(member => <div className="table-row staff-row" key={member.id} data-testid={`row-staff-${member.id}`}><span className="person-cell"><span className={`avatar ${member.isStale ? 'avatar-stale' : ''}`}>{member.initials}</span><span><b>{member.name}</b></span></span><span>{member.team}</span><span>{member.region}</span><span><StatusPill value={member.signal ?? 'Unknown'} tone="signal" testId={`signal-staff-${member.id}`} /></span><span><StatusPill value={member.status} testId={`status-staff-${member.id}`} /><small className="table-subtext">Updated {formatTime(member.updatedAt)}</small></span><span className="muted-label">{member.source ?? '—'}</span></div>)}

@@ -1,6 +1,3 @@
-import { createClient } from "@supabase/supabase-js";
-import WebSocket from "ws";
-
 const MAX_RESULTS = 100;
 const JIRA_REQUEST_TIMEOUT_MS = 5_000;
 
@@ -46,8 +43,12 @@ function readEnvironmentValue(name) {
 
 function getRequiredEnvironment() {
   const environment = {
-    supabaseUrl: readEnvironmentValue("SUPABASE_URL"),
-    supabaseServiceRoleKey: readEnvironmentValue("SUPABASE_SERVICE_ROLE_KEY"),
+    supabaseUrl:
+      readEnvironmentValue("SUPABASE_J_URL") ??
+      readEnvironmentValue("SUPABASE_URL"),
+    supabaseServiceRoleKey:
+      readEnvironmentValue("SUPABASE_J_SERVICE_ROLE_KEY") ??
+      readEnvironmentValue("SUPABASE_SERVICE_ROLE_KEY"),
     jiraBaseUrl:
       readEnvironmentValue("JIRA_HOST") ??
       readEnvironmentValue("JIRA_BASE_URL"),
@@ -57,9 +58,11 @@ function getRequiredEnvironment() {
   };
 
   const missing = [];
-  if (!environment.supabaseUrl) missing.push("SUPABASE_URL");
+  if (!environment.supabaseUrl) {
+    missing.push("SUPABASE_J_URL or SUPABASE_URL");
+  }
   if (!environment.supabaseServiceRoleKey) {
-    missing.push("SUPABASE_SERVICE_ROLE_KEY");
+    missing.push("SUPABASE_J_SERVICE_ROLE_KEY or SUPABASE_SERVICE_ROLE_KEY");
   }
   if (!environment.jiraBaseUrl) missing.push("JIRA_HOST or JIRA_BASE_URL");
   if (!environment.jiraEmail) missing.push("JIRA_EMAIL");
@@ -80,6 +83,42 @@ function normalizeJiraBaseUrl(value) {
   return /^https?:\/\//i.test(withoutTrailingSlash)
     ? withoutTrailingSlash
     : `https://${withoutTrailingSlash}`;
+}
+
+function createSupabaseRestClient(baseUrl, serviceRoleKey) {
+  const normalizedBaseUrl = baseUrl.trim().replace(/\/+$/, "").replace(/\/rest\/v1$/i, "");
+  return {
+    from(table) {
+      return {
+        async upsert(rows, { onConflict } = {}) {
+          const query = onConflict
+            ? `?on_conflict=${encodeURIComponent(onConflict)}`
+            : "";
+          const response = await fetch(
+            `${normalizedBaseUrl}/rest/v1/${encodeURIComponent(table)}${query}`,
+            {
+              method: "POST",
+              headers: {
+                apikey: serviceRoleKey,
+                Authorization: `Bearer ${serviceRoleKey}`,
+                "Content-Type": "application/json",
+                Prefer: "resolution=merge-duplicates,return=minimal",
+              },
+              body: JSON.stringify(rows),
+              signal: AbortSignal.timeout(JIRA_REQUEST_TIMEOUT_MS),
+            },
+          );
+          if (response.ok) return { error: null };
+          const detail = await response.text().catch(() => "");
+          return {
+            error: new Error(
+              `Supabase returned ${response.status}${detail ? `: ${detail}` : ""}`,
+            ),
+          };
+        },
+      };
+    },
+  };
 }
 
 function normalizeFieldName(value) {
@@ -298,7 +337,7 @@ async function getJiraIssues({
 
 export async function syncJiraShifts({
   fetchImpl = fetch,
-  createSupabaseClient = createClient,
+  createSupabaseClient = createSupabaseRestClient,
 } = {}) {
   const {
     supabaseUrl,
@@ -311,9 +350,7 @@ export async function syncJiraShifts({
 
   let supabase;
   try {
-    supabase = createSupabaseClient(supabaseUrl, supabaseServiceRoleKey, {
-      realtime: { transport: WebSocket },
-    });
+    supabase = createSupabaseClient(supabaseUrl, supabaseServiceRoleKey);
   } catch {
     throw new JiraSyncError(
       "Supabase client initialization failed",

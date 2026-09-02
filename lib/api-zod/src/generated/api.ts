@@ -46,9 +46,26 @@ export const ListStaffResponseItem = zod.object({
   "environment": zod.string(),
   "eta": zod.string(),
   "updatedAt": zod.string(),
-  "isStale": zod.boolean()
+  "isStale": zod.boolean(),
+  "signal": zod.string().optional(),
+  "source": zod.string().optional(),
+  "priority": zod.string().optional(),
+  "dueDate": zod.string().optional()
 })
 export const ListStaffResponse = zod.array(ListStaffResponseItem)
+
+
+/**
+ * Runs the server-side Jira shift synchronizer and returns the number of processed shifts.
+ * @summary Sync staff shifts from Jira
+ */
+export const syncStaffJiraResponseCountMin = 0;
+
+
+
+export const SyncStaffJiraResponse = zod.object({
+  "count": zod.number().min(syncStaffJiraResponseCountMin)
+})
 
 
 /**
@@ -74,7 +91,11 @@ export const UpdateStaffStatusResponse = zod.object({
   "environment": zod.string(),
   "eta": zod.string(),
   "updatedAt": zod.string(),
-  "isStale": zod.boolean()
+  "isStale": zod.boolean(),
+  "signal": zod.string().optional(),
+  "source": zod.string().optional(),
+  "priority": zod.string().optional(),
+  "dueDate": zod.string().optional()
 })
 
 
@@ -135,10 +156,13 @@ export const ListReleaseGatesResponseItem = zod.object({
   "id": zod.string(),
   "environment": zod.string(),
   "title": zod.string(),
+  "summary": zod.string(),
   "owner": zod.string(),
   "due": zod.string(),
+  "dueDate": zod.string(),
   "checked": zod.boolean(),
-  "risk": zod.string()
+  "risk": zod.string(),
+  "priority": zod.string()
 })
 export const ListReleaseGatesResponse = zod.array(ListReleaseGatesResponseItem)
 
@@ -154,10 +178,13 @@ export const ToggleReleaseGateResponse = zod.object({
   "id": zod.string(),
   "environment": zod.string(),
   "title": zod.string(),
+  "summary": zod.string(),
   "owner": zod.string(),
   "due": zod.string(),
+  "dueDate": zod.string(),
   "checked": zod.boolean(),
-  "risk": zod.string()
+  "risk": zod.string(),
+  "priority": zod.string()
 })
 
 
@@ -803,28 +830,6 @@ export const GetTreasuryAnalyticsResponse = zod.object({
 })),
   "totalYtd": zod.number(),
   "varianceRate": zod.number()
-})
-
-
-/**
- * @summary Search verified compliance guidance
- */
-
-
-
-export const SearchComplianceBody = zod.object({
-  "query": zod.string().min(1)
-})
-
-export const SearchComplianceResponse = zod.object({
-  "answer": zod.string(),
-  "confidence": zod.number(),
-  "citations": zod.array(zod.object({
-  "document": zod.string(),
-  "section": zod.string(),
-  "page": zod.number(),
-  "excerpt": zod.string()
-}))
 })
 
 

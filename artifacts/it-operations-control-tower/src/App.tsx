@@ -1,4 +1,4 @@
-import { type ReactNode, useMemo, useState, useEffect, useRef, useCallback } from 'react';
+import React, { type ReactNode, useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle,
@@ -6,7 +6,6 @@ import {
   ArrowUpRight,
   BarChart3,
   Bell,
-  BookOpen,
   Check,
   CheckCircle2,
   ChevronRight,
@@ -30,14 +29,10 @@ import {
   MoreHorizontal,
   PackageCheck,
   PanelLeft,
-  PauseCircle,
-  Play,
   RefreshCw,
   Search,
-  Send,
   ShieldCheck,
   SlidersHorizontal,
-  Sparkles,
   UserRound,
   UsersRound,
   WalletCards,
@@ -54,6 +49,7 @@ import {
   getListProcurementRecordsQueryKey,
   getListReleaseGatesQueryKey,
   getListStaffQueryKey,
+  useSyncStaffJira,
   useAdvanceProcurementStatus,
   useCreatePaymentSchedule,
   useCreateProcurementRecord,
@@ -69,15 +65,12 @@ import {
   useListStaff,
   useMarkPaid,
   useResolveVariance,
-  useSearchCompliance,
   useSubmitInvoice,
   useSubmitProcurementReview,
   useToggleReleaseGate,
-  useUpdateStaffStatus,
   useUpdateHeadOfItLeave,
   type AuditLog,
   type BusinessUnitAllocation,
-  type ComplianceAnswer,
   type DashboardSummary,
   type DelegationStatus,
   type FxRate,
@@ -97,7 +90,6 @@ import {
   useJiraTickets,
   useVendorSubmissions,
   type IntegrationStatus,
-  type JiraTicket,
   type VendorSubmission,
 } from '@/hooks/use-integrations';
 import { Button } from '@/components/ui/button';
@@ -123,17 +115,17 @@ import { ProcurementPage as ProcurementWorkflowPage } from '@/procurement-workfl
 import { VendorPage } from '@/pages/VendorPage';
 
 const queryClient = new QueryClient();
+const STAFF_SYNC_INTERVAL_MS = 3 * 60 * 1000;
 
 type IconType = typeof LayoutDashboard;
 
 const navItems: { label: string; href: string; icon: IconType; note?: string }[] = [
   { label: 'Command center', href: '/', icon: LayoutDashboard },
-  { label: 'Staff operations', href: '/staff', icon: UsersRound, note: '300' },
+  { label: 'Staff operations', href: '/staff', icon: UsersRound },
   { label: 'Release control', href: '/release', icon: PackageCheck },
   { label: 'Procurement', href: '/procurement', icon: ClipboardCheck },
   { label: 'Vendor portal', href: '/vendor', icon: Globe2, note: 'external' },
   { label: 'Treasury', href: '/treasury', icon: WalletCards },
-  { label: 'Compliance', href: '/compliance', icon: BookOpen },
   { label: 'Administration', href: '/admin', icon: LockKeyhole },
 ];
 
@@ -144,7 +136,6 @@ const pageMeta: Record<string, { eyebrow: string; title: string; description: st
   '/procurement': { eyebrow: 'Commercial / workflow', title: 'Procurement control', description: 'Approvals, purchase orders, and exceptions in one accountable queue.' },
   '/vendor': { eyebrow: 'Supplier / self-service', title: 'Vendor portal', description: 'Purchase orders, milestone deliveries, and invoice submissions for external vendors.' },
   '/treasury': { eyebrow: 'Finance / allocation', title: 'Treasury overview', description: 'Payment velocity, business-unit allocation, and foreign exchange exposure.' },
-  '/compliance': { eyebrow: 'Risk / guidance', title: 'Compliance assistant', description: 'Ask a policy question. Get an answer with a source you can inspect.' },
   '/admin': { eyebrow: 'Governance / access', title: 'Administration', description: 'Access posture and an immutable trail of operational decisions.' },
 };
 
@@ -347,8 +338,24 @@ function statusTone(status = '') {
   return 'status-neutral';
 }
 
-function StatusPill({ value, testId }: { value: string; testId?: string }) {
-  return <span className={`status-pill ${statusTone(value)}`} data-testid={testId}>{value || 'Unassigned'}</span>;
+function signalTone(signal = '') {
+  const normalized = signal.trim().toLowerCase();
+  if (normalized === 'active') return 'signal-active';
+  if (normalized === 'inactive') return 'signal-inactive';
+  return 'status-neutral';
+}
+
+function StatusPill({ value, testId, tone = 'default' }: { value: string; testId?: string; tone?: 'default' | 'signal' }) {
+  const className = tone === 'signal' ? signalTone(value) : statusTone(value);
+  return <span className={`status-pill ${className}`} data-testid={testId}>{value || 'Unassigned'}</span>;
+}
+
+function isActiveStaff(member: StaffMember) {
+  return member.status.trim().toLowerCase() === 'active' && !member.isStale;
+}
+
+function isOutOfOfficeStaff(member: StaffMember) {
+  return member.status.trim().toLowerCase().replace(/[-_]+/g, ' ') === 'out of office';
 }
 
 function LoadingRows({ count = 4 }: { count?: number }) {
@@ -494,8 +501,9 @@ function IntegrationPulse() {
   const configuredOk = statuses.filter((s: IntegrationStatus) => s.status === 'ok').length;
   const total = statuses.length;
   const connected = statuses.filter((s: IntegrationStatus) => s.configured).length;
+  const unavailable = statuses.filter((s: IntegrationStatus) => s.status !== 'ok');
   return (
-    <div className="pulse-mini">
+    <div className="pulse-mini" title={unavailable.map((s: IntegrationStatus) => `${s.name}: ${s.message ?? s.status}`).join('\n')}>
       <div className="pulse-mini-heading">
         <span className="signal-dot" /> Integrations{' '}
         <span className="font-mono">{healthQuery.isLoading ? '...' : `${configuredOk}/${total || 0}`}</span>
@@ -505,6 +513,8 @@ function IntegrationPulse() {
           ? statuses.map((s: IntegrationStatus, i: number) => (
               <i
                 key={s.name}
+                aria-label={`${s.name}: ${s.status}`}
+                title={`${s.name}: ${s.message ?? s.status}`}
                 style={{
                   height: s.status === 'ok' ? 92 : s.status === 'error' ? 30 : 55,
                   background: s.status === 'ok' ? 'var(--accent)' : s.status === 'error' ? '#e5484d' : undefined,
@@ -513,7 +523,7 @@ function IntegrationPulse() {
             ))
           : [40, 55, 45, 60].map((h, i) => <i style={{ height: h }} key={i} />)}
       </div>
-      <small>{healthQuery.isLoading ? 'Checking service feeds…' : `${connected} of ${total || 0} services configured`}</small>
+      <small>{healthQuery.isLoading ? 'Checking service feeds…' : unavailable.length ? `${configuredOk} healthy · ${unavailable.length} fallback/offline` : `${connected} of ${total || 0} services configured`}</small>
     </div>
   );
 }
@@ -521,6 +531,14 @@ function IntegrationPulse() {
 function Shell({ children }: { children: ReactNode }) {
   const [location] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const staffQuery = useListStaff({
+    query: {
+      queryKey: getListStaffQueryKey(),
+      refetchInterval: STAFF_SYNC_INTERVAL_MS,
+      refetchOnMount: 'always',
+      refetchIntervalInBackground: false,
+    },
+  });
   const delegationQuery = useGetDelegationStatus({
     query: { queryKey: getGetDelegationStatusQueryKey(), refetchInterval: 15000 },
   });
@@ -529,6 +547,9 @@ function Shell({ children }: { children: ReactNode }) {
     ? delegation.deputy
     : delegation?.headOfIt;
   const meta = pageMeta[location] ?? pageMeta['/'];
+  const staffQuery = useListStaff({ query: { queryKey: getListStaffQueryKey(), refetchInterval: 15000 } });
+  const staff = (staffQuery.data as StaffMember[] | undefined) ?? [];
+  const staffCountLabel = staffQuery.isLoading ? '…' : staffQuery.isError ? '—' : String(staff.length);
   return <div className="app-shell min-h-[100dvh]">
     <aside className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`}>
       <div className="brand">
@@ -546,7 +567,9 @@ function Shell({ children }: { children: ReactNode }) {
           className={`nav-link ${location === href ? 'nav-link-active' : ''}`}
           data-testid={`link-${label.toLowerCase().replace(/\s+/g, '-')}`}
         >
-          <Icon size={17} strokeWidth={1.8} /><span>{label}</span>{note && <em>{note}</em>}
+          <Icon size={17} strokeWidth={1.8} /><span>{label}</span>{label === 'Staff operations'
+            ? <em>{staffQuery.isLoading ? '…' : formatNumber(Array.isArray(staffQuery.data) ? staffQuery.data.length : undefined)}</em>
+            : note && <em>{note}</em>}
         </Link>)}
       </nav>
       <div className="sidebar-lower">
@@ -560,9 +583,6 @@ function Shell({ children }: { children: ReactNode }) {
         <div className="topbar-left">
           <button className="mobile-menu" onClick={() => setMobileOpen(true)} data-testid="button-open-menu"><Menu size={20} /></button>
           <span className="breadcrumb">Orbital <ChevronRight size={13} /> {meta.eyebrow.split(' / ')[0]}</span>
-        </div>
-        <div className="topbar-center">
-          <GlobalSearch />
         </div>
         <div className="topbar-actions">
           <DeputyToggle status={delegation} loading={delegationQuery.isLoading} />
@@ -588,18 +608,29 @@ function MetricCard({ label, value, detail, accent = 'teal', icon: Icon }: { lab
   </div>;
 }
 
-function DashboardPage() {
+export function DashboardPage() {
   const summaryQuery = useGetDashboardSummary({ query: { queryKey: getGetDashboardSummaryQueryKey(), refetchInterval: 30000 } });
-  const staffQuery = useListStaff({ query: { queryKey: getListStaffQueryKey(), refetchInterval: 30000 } });
+  const staffQuery = useListStaff({ query: { queryKey: getListStaffQueryKey(), refetchInterval: false, refetchOnMount: false } });
   const healthQuery = useHealthCheck({ query: { queryKey: getHealthCheckQueryKey(), refetchInterval: 30000 } });
+  const jiraTicketsQuery = useJiraTickets();
   const summary = summaryQuery.data as DashboardSummary | undefined;
   const staff = (staffQuery.data as StaffMember[] | undefined) ?? [];
+  const jiraTickets = (jiraTicketsQuery.data?.tickets ?? []).filter(
+    ticket => ticket.status.trim().toLowerCase() !== 'completed',
+  );
   const recentStaff = useMemo(() => staff.slice().sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))).slice(0, 5), [staff]);
+  const activeStaffCount = staff.filter(isActiveStaff).length;
+  const outOfOfficeStaffCount = staff.filter(isOutOfOfficeStaff).length;
+  const eligibleStaffCount = staff.length - outOfOfficeStaffCount;
+  const inactiveEligibleStaffCount = staff.filter(member => !isOutOfOfficeStaff(member) && !isActiveStaff(member)).length;
+  const systemPulsePercent = staffQuery.isLoading || staffQuery.isError || eligibleStaffCount === 0
+    ? undefined
+    : Math.round((inactiveEligibleStaffCount / eligibleStaffCount) * 100);
   const hasError = summaryQuery.isError || staffQuery.isError;
   return <div className="page-stack">
     {hasError && <ErrorState onRetry={() => { void summaryQuery.refetch(); void staffQuery.refetch(); }} />}
     <div className="metric-grid">
-      <MetricCard label="Active staff" value={summary ? formatNumber(summary.activeStaff) : '—'} detail={summary ? `${formatNumber(summary.staleStaff)} stale check-ins` : 'Awaiting staff feed'} accent="teal" icon={UsersRound} />
+      <MetricCard label="Active staff" value={summary ? formatNumber(summary.activeStaff) : '—'} detail={summary ? `Jira SHIFT feed · ${formatNumber(summary.staleStaff)} stale check-ins` : 'Awaiting Jira staff feed'} accent="teal" icon={UsersRound} />
       <MetricCard label="Pending approvals" value={summary ? formatNumber(summary.pendingApprovals) : '—'} detail="Across procurement and access" accent="amber" icon={Clock3} />
       <MetricCard label="Release readiness" value={summary ? `${summary.releaseReadiness}%` : '—'} detail="Evidence-backed gate score" accent="lime" icon={PackageCheck} />
       <MetricCard label="Blocked variances" value={summary ? formatNumber(summary.blockedVariances) : '—'} detail="Requires owner action" accent="coral" icon={AlertCircle} />
@@ -607,7 +638,7 @@ function DashboardPage() {
     <div className="dashboard-grid">
       <section className="panel pulse-panel animate-in animate-delay-1 signal-grid">
         <SectionHeading eyebrow="Operational heartbeat" title="System pulse" action={<StatusPill value={healthQuery.data?.status === 'ok' ? 'Nominal' : healthQuery.isLoading ? 'Checking' : 'Review'} testId="status-system-pulse" />} />
-        <div className="pulse-score-row"><div><strong>{summary?.systemPulse ?? '—'}</strong><span>/ 100</span><p>Composite signal across monitored services</p></div><div className="pulse-ring"><div><span>{summary?.systemPulse ? 'GOOD' : 'WAIT'}</span></div></div></div>
+        <div className="pulse-score-row"><div><strong>{summary?.systemPulse ?? '—'}</strong><span>/ 100</span><p>Inactive members excluding out-of-office members</p></div><div className="pulse-ring"><div><span>{summary?.systemPulse ? 'GOOD' : 'WAIT'}</span></div></div></div>
         <div className="large-pulse-bars">{[36, 42, 38, 50, 44, 61, 56, 72, 69, 78, 74, 88, 82, 92, 87, 96, 90, 93, 88, 95, 94, 97, 96, 99].map((height, i) => <i key={i} style={{ height: `${height}%` }} />)}</div>
         <div className="panel-foot"><span>Last sync <b className="font-mono">{formatTime(summary?.lastSync)}</b></span><span className="signal-text"><span className="signal-dot" /> Stable telemetry</span></div>
       </section>
@@ -624,7 +655,7 @@ function DashboardPage() {
       <SectionHeading eyebrow="Latest telemetry" title="Activity across operations" action={<span className="muted-label">Showing latest 5 updates</span>} />
       {staffQuery.isLoading ? <LoadingRows /> : recentStaff.length ? <div className="activity-table">
         <div className="table-head"><span>Person</span><span>Workstream</span><span>Environment</span><span>State</span><span>Updated</span></div>
-        {recentStaff.map(member => <div className="table-row" key={member.id} data-testid={`row-activity-${member.id}`}><span className="person-cell"><span className="avatar">{member.initials}</span><span><b>{member.name}</b><small>{member.role}</small></span></span><span>{member.team}<small>{member.region}</small></span><span className="font-mono">{member.environment || '—'}</span><span><StatusPill value={member.status} /></span><span className="font-mono muted-label">{formatTime(member.updatedAt)}</span></div>)}
+        {recentStaff.map(member => <div className="table-row" key={member.id} data-testid={`row-activity-${member.id}`}><span className="person-cell"><span className="avatar">{member.initials}</span><span><b>{member.name}</b>{member.role !== 'Jira SHIFT' && <small>{member.role}</small>}</span></span><span>{member.team}<small>{member.region}</small></span><span className="font-mono">{member.environment || '—'}</span><span><StatusPill value={member.status} /></span><span className="font-mono muted-label">{formatTime(member.updatedAt)}</span></div>)}
       </div> : <EmptyState title="No activity yet" detail="The staff feed has not returned any monitored updates." />}
     </section>
     <JiraQueueSection />
@@ -638,40 +669,33 @@ function JiraQueueSection() {
     <section className="panel animate-in">
       <SectionHeading
         eyebrow="Jira work queue"
-        title="Live tickets"
+        title="Upcoming Task"
         action={<span className="muted-label">Source: {jira.data?.source ?? '…'}</span>}
       />
       {jira.isLoading ? <LoadingRows count={3} /> : tickets.length ? <div className="activity-table">
         <div className="table-head"><span>Key</span><span>Summary</span><span>Status</span><span>Env</span><span>Assignee</span></div>
-        {tickets.map((t: JiraTicket) => <div className="table-row" key={t.id} data-testid={`row-jira-${t.key}`}><span className="font-mono"><b>{t.key}</b></span><span>{t.summary}</span><span><StatusPill value={t.status} /></span><span className="font-mono">{t.environment}</span><span>{t.assignee}<small>{t.updatedAt}</small></span></div>)}
+        {tickets.map((t: JiraTicket) => <div className="table-row" key={t.id} data-testid={`row-jira-${t.key}`}><span className="font-mono"><b>{t.key}</b></span><span>{t.summary}</span><span><StatusPill value={t.status} /></span><span className="font-mono">{t.environment}</span><span>{t.assignee}</span></div>)}
       </div> : <EmptyState title="No tickets" detail="Jira is not configured yet." icon={ClipboardCheck} />}
     </section>
-  );
+  </div>;
 }
 
 function StaffPage() {
-  const query = useListStaff({ query: { queryKey: getListStaffQueryKey(), refetchInterval: 15000 } });
+  const query = useListStaff({ query: { queryKey: getListStaffQueryKey(), refetchInterval: false, refetchOnMount: false } });
   const delegationQuery = useGetDelegationStatus({
     query: { queryKey: getGetDelegationStatusQueryKey(), refetchInterval: 15000 },
   });
-  const update = useUpdateStaffStatus();
   const updateLeave = useUpdateHeadOfItLeave();
   const client = useQueryClient();
   const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('All');
+  const [signal, setSignal] = useState('All');
   const staff = (query.data as StaffMember[] | undefined) ?? [];
-  const statuses = ['All', ...Array.from(new Set(staff.map(item => item.status).filter(Boolean)))];
+  const signals = ['All', ...Array.from(new Set(staff.map(item => item.signal ?? item.status).filter(Boolean)))];
   const filtered = useMemo(() => staff.filter(item => {
     const text = `${item.name} ${item.role} ${item.team} ${item.region}`.toLowerCase();
-    return text.includes(search.toLowerCase()) && (status === 'All' || item.status === status);
-  }), [staff, search, status]);
-  const changeStatus = (member: StaffMember) => {
-    const next = member.status.toLowerCase().includes('active') ? 'Away' : 'Active';
-    update.mutate({ id: member.id, data: { status: next } }, {
-      onSuccess: () => { void client.invalidateQueries({ queryKey: getListStaffQueryKey() }); toast.success(`${member.name} marked ${next.toLowerCase()}`); },
-      onError: () => toast.error('Status update failed'),
-    });
-  };
+    const itemSignal = item.signal ?? item.status;
+    return text.includes(search.toLowerCase()) && (signal === 'All' || itemSignal === signal);
+  }).sort((a, b) => a.team.localeCompare(b.team, undefined, { sensitivity: 'base' }) || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })), [staff, search, signal]);
   const delegation = delegationQuery.data as DelegationStatus | undefined;
   const changeHeadLeave = () => {
     if (!delegation) return;
@@ -685,6 +709,37 @@ function StaffPage() {
       onError: () => toast.error('Could not update Head of IT leave status'),
     });
   };
+  useEffect(() => {
+    syncJiraRef.current = syncJira;
+  }, [syncJira]);
+  const runJiraSync = useCallback(() => {
+    if (syncInFlightRef.current || syncJiraRef.current.isPending) return;
+    syncInFlightRef.current = true;
+    syncJiraRef.current.mutate(undefined, {
+      onSuccess: (result) => {
+        setSyncFailure(null);
+        void client.invalidateQueries({ queryKey: getListStaffQueryKey() });
+        toast.success(`Jira sync complete: ${result.count} shift${result.count === 1 ? '' : 's'} processed`);
+      },
+      onError: (error) => {
+        const message = getSyncFailureMessage(error);
+        setSyncFailure(message);
+        toast.error(message);
+      },
+      onSettled: () => {
+        syncInFlightRef.current = false;
+      },
+    });
+  }, [client]);
+  const autoSyncStartedRef = useRef(false);
+  useEffect(() => {
+    if (!autoSyncStartedRef.current) {
+      autoSyncStartedRef.current = true;
+      runJiraSync();
+    }
+    const timer = window.setInterval(runJiraSync, JIRA_SYNC_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [runJiraSync]);
   return <div className="page-stack">
     <section className={`panel delegation-panel ${delegation?.delegationActive ? 'delegation-panel-active' : ''}`} data-testid="panel-delegation-status">
       <div className="delegation-summary">
@@ -702,12 +757,12 @@ function StaffPage() {
         {updateLeave.isPending ? 'Updating…' : delegation?.headOfIt.onLeave ? 'Return from leave' : 'Mark Head of IT on leave'}
       </button>
     </section>
-    <div className="toolbar panel"><div className="search-field"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search people, teams, regions" data-testid="input-search-staff" /></div><div className="filter-group"><Filter size={14} /><select value={status} onChange={e => setStatus(e.target.value)} data-testid="select-staff-status">{statuses.map(value => <option value={value} key={value}>{value}</option>)}</select></div><span className="toolbar-count font-mono">{filtered.length} / {staff.length} visible</span></div>
+    <div className="toolbar panel"><div className="search-field"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search people, teams, regions" data-testid="input-search-staff" /></div><div className="filter-group"><Filter size={14} /><select value={signal} onChange={e => setSignal(e.target.value)} aria-label="Signal" data-testid="select-staff-signal">{signals.map(value => <option value={value} key={value}>{value}</option>)}</select></div><span className="toolbar-count font-mono">{filtered.length} / {staff.length} visible</span></div>
     <section className="panel">
-      <SectionHeading eyebrow="Coverage board" title="Shift signal" action={<div className="legend"><span><i className="legend-dot live" /> Live</span><span><i className="legend-dot stale" /> Stale</span></div>} />
+      <SectionHeading eyebrow="Coverage board" title="Shift signal" />
       {query.isError ? <ErrorState onRetry={() => void query.refetch()} /> : query.isLoading ? <LoadingRows count={6} /> : !filtered.length ? <EmptyState title={staff.length ? 'No matching staff' : 'No staff feed available'} detail={staff.length ? 'Adjust the search or status filter.' : 'Once monitored staff are connected, their shift signal will appear here.'} icon={UsersRound} /> : <div className="staff-table">
-        <div className="table-head staff-head"><span>Staff member</span><span>Team / region</span><span>Ticket</span><span>Environment</span><span>Signal</span><span>Action</span></div>
-        {filtered.map(member => <div className="table-row staff-row" key={member.id} data-testid={`row-staff-${member.id}`}><span className="person-cell"><span className={`avatar ${member.isStale ? 'avatar-stale' : ''}`}>{member.initials}</span><span><b>{member.name}</b><small>{member.role}</small></span></span><span><b>{member.team}</b><small>{member.region}</small></span><span className="font-mono">{member.ticket || 'No ticket'}</span><span className="font-mono">{member.environment || '—'}</span><span><StatusPill value={member.isStale ? 'Stale' : member.status} testId={`status-staff-${member.id}`} /><small className="table-subtext">Updated {formatTime(member.updatedAt)}</small></span><button className="row-action" onClick={() => changeStatus(member)} disabled={update.isPending} data-testid={`button-toggle-status-${member.id}`}>{member.status.toLowerCase().includes('active') ? <PauseCircle size={15} /> : <Play size={15} />}{member.status.toLowerCase().includes('active') ? 'Set away' : 'Set active'}</button></div>)}
+        <div className="table-head staff-head"><span>Staff Member</span><span>Team</span><span>Region</span><span>Signal</span><span>Status</span><span>Source</span></div>
+        {filtered.map(member => <div className="table-row staff-row" key={member.id} data-testid={`row-staff-${member.id}`}><span className="person-cell"><span className={`avatar ${member.isStale ? 'avatar-stale' : ''}`}>{member.initials}</span><span><b>{member.name}</b></span></span><span>{member.team}</span><span>{member.region}</span><span><StatusPill value={member.signal ?? 'Unknown'} tone="signal" testId={`signal-staff-${member.id}`} /></span><span><StatusPill value={member.status} testId={`status-staff-${member.id}`} /><small className="table-subtext">Updated {formatTime(member.updatedAt)}</small></span><span className="muted-label">{member.source ?? '—'}</span></div>)}
       </div>}
     </section>
   </div>;
@@ -723,7 +778,7 @@ function ReleasePage() {
     <div className="release-summary panel"><div><span className="eyebrow">Handover posture</span><h2>{gates.length ? `${gates.filter(g => g.checked).length} of ${gates.length} gates checked` : 'No gate data'}</h2><p>Every gate carries an owner, due date, and risk signal.</p></div><div className="handover-meter"><div style={{ width: `${gates.length ? (gates.filter(g => g.checked).length / gates.length) * 100 : 0}%` }} /><span>{gates.length ? Math.round((gates.filter(g => g.checked).length / gates.length) * 100) : 0}% ready</span></div><div className="release-callout"><ShieldCheck size={18} /><span>Production handover requires all critical gates checked.</span></div></div>
     {query.isError ? <ErrorState onRetry={() => void query.refetch()} /> : query.isLoading ? <LoadingRows count={3} /> : gates.length ? <div className="release-columns">{environments.map((environment, index) => {
       const envGates = gates.filter(g => g.environment.toLowerCase() === environment.toLowerCase());
-      return <section className={`panel release-column animate-in animate-delay-${index + 1}`} key={environment}><div className="column-heading"><div><span className={`env-badge env-${environment.toLowerCase()}`}>{environment}</span><h2>{envGates.length} gates</h2></div><span className="font-mono muted-label">{envGates.filter(g => g.checked).length}/{envGates.length}</span></div>{envGates.length ? <div className="gate-list">{envGates.map(gate => <button className={`gate-item ${gate.checked ? 'gate-checked' : ''}`} key={gate.id} onClick={() => toggle.mutate({ id: gate.id }, { onSuccess: () => { void client.invalidateQueries({ queryKey: getListReleaseGatesQueryKey() }); toast.success(gate.checked ? 'Gate reopened' : 'Gate checked'); }, onError: () => toast.error('Gate update failed') })} disabled={toggle.isPending} data-testid={`button-gate-${gate.id}`}><span className={`check-box ${gate.checked ? 'check-box-checked' : ''}`}>{gate.checked && <Check size={13} />}</span><span className="gate-copy"><b>{gate.title}</b><small>{gate.owner} · due {formatDate(gate.due)}</small></span><StatusPill value={gate.risk} /></button>)}</div> : <EmptyState title={`No ${environment} gates`} detail="This environment has no checklist items in the current release." icon={FileCheck2} />}</section>;
+      return <section className={`panel release-column animate-in animate-delay-${index + 1}`} key={environment}><div className="column-heading"><div><span className={`env-badge env-${environment.toLowerCase()}`}>{environment}</span><h2>{envGates.length} gates</h2></div><span className="font-mono muted-label">{envGates.filter(g => g.checked).length}/{envGates.length}</span></div>{envGates.length ? <div className="gate-list">{envGates.map(gate => <button className={`gate-item ${gate.checked ? 'gate-checked' : ''}`} key={gate.id} onClick={() => toggle.mutate({ id: gate.id }, { onSuccess: () => { void client.invalidateQueries({ queryKey: getListReleaseGatesQueryKey() }); toast.success(gate.checked ? 'Gate reopened' : 'Gate checked'); }, onError: () => toast.error('Gate update failed') })} disabled={toggle.isPending} data-testid={`button-gate-${gate.id}`}><span className={`check-box ${gate.checked ? 'check-box-checked' : ''}`}>{gate.checked && <Check size={13} />}</span><span className="gate-copy"><b>{gate.summary}</b><small>{gate.owner} · due {formatDate(gate.dueDate)}</small></span><StatusPill value={gate.priority} /></button>)}</div> : <EmptyState title={`No ${environment} gates`} detail="This environment has no checklist items in the current release." icon={FileCheck2} />}</section>;
     })}</div> : <EmptyState title="No release gates" detail="The release checklist will appear once the change feed is connected." icon={PackageCheck} />}
   </div>;
 }
@@ -732,12 +787,13 @@ function ReleasePage() {
 function VendorSubmissionsSection() {
   const vendorQuery = useVendorSubmissions();
   const submissions = vendorQuery.data?.submissions ?? [];
+  const sourceLabel = vendorQuery.data?.degraded ? `${vendorQuery.data.source} fallback` : vendorQuery.data?.source;
   return (
     <section className="panel animate-in">
       <SectionHeading
         eyebrow="Vendor API"
         title="Incoming submissions"
-        action={<span className="muted-label">Source: {vendorQuery.data?.source ?? '…'}</span>}
+        action={<span className="muted-label" title={vendorQuery.data?.message}>Source: {sourceLabel ?? '…'}</span>}
       />
       {vendorQuery.isLoading ? <LoadingRows count={3} /> : submissions.length ? <div className="activity-table">
         <div className="table-head"><span>Type</span><span>PO</span><span>Amount</span><span>Vendor</span><span>Submitted</span></div>
@@ -797,45 +853,6 @@ function TreasuryPage() {
   </> : <EmptyState title="No treasury data" detail="Treasury analytics will appear when the reporting feed is available." icon={WalletCards} />}</div>;
 }
 
-function CitationCard({ citation }: { citation: ComplianceAnswer['citations'][number] }) {
-  return <div className="citation-card" data-testid={`citation-${citation.page}-${citation.section}`}><div className="citation-meta"><FileCheck2 size={14} /><span>{citation.document}</span><span>§ {citation.section}</span><span>p. {citation.page}</span></div><p>“{citation.excerpt}”</p></div>;
-}
-
-function CompliancePage() {
-  const searchString = useSearch();
-  const searchParams = new URLSearchParams(searchString);
-  const initialQuery = searchParams.get('q') || '';
-  const [queryText, setQueryText] = useState(initialQuery);
-  const search = useSearchCompliance();
-  const answer = search.data as ComplianceAnswer | undefined;
-  
-  const hasRunInitial = useRef(false);
-  
-  const ask = useCallback((q: string) => { 
-    if (!q.trim()) return; 
-    search.mutate({ data: { query: q.trim() } }, { 
-      onSuccess: () => toast.success('Guidance retrieved'), 
-      onError: () => toast.error('Could not search policy guidance') 
-    }); 
-  }, [search.mutate]);
-
-  useEffect(() => {
-    if (initialQuery && !hasRunInitial.current) {
-      hasRunInitial.current = true;
-      ask(initialQuery);
-    }
-  }, [initialQuery, ask]);
-
-  const handleAsk = () => ask(queryText);
-
-  return <div className="page-stack compliance-page"><section className="compliance-hero panel signal-grid"><div className="compliance-orb"><Sparkles size={20} /></div><div><span className="eyebrow">Verified policy search</span><h2>What decision are you making?</h2><p>Ask in plain language. Orbital searches internal policy and returns cited guidance for review.</p></div><div className="compliance-search"><Search size={17} /><input value={queryText} onChange={e => setQueryText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleAsk(); }} placeholder="e.g. Can a vendor access production data during UAT?" data-testid="input-compliance-query" /><button className="button button-primary" onClick={handleAsk} disabled={search.isPending || !queryText.trim()} data-testid="button-search-compliance">{search.isPending ? 'Searching' : 'Search guidance'}<Send size={14} /></button></div></section>
-    {search.isError && <ErrorState onRetry={handleAsk} />}
-    {!answer && !search.isPending && <section className="compliance-empty"><BookOpen size={22} /><strong>Answers carry their evidence</strong><p>Start with a policy question. Your results will show confidence and the exact document excerpt behind the answer.</p><div className="question-chips"><button onClick={() => setQueryText('What are the approval controls for production access?')} data-testid="button-suggest-access">Production access controls</button><button onClick={() => setQueryText('When is a vendor security review required?')} data-testid="button-suggest-vendor">Vendor security review</button><button onClick={() => setQueryText('What evidence is needed for release handover?')} data-testid="button-suggest-release">Release evidence</button></div></section>}
-    {search.isPending && <section className="panel"><LoadingRows count={3} /></section>}
-    {answer && <div className="answer-grid"><section className="panel answer-card"><div className="answer-top"><span className="eyebrow">Policy answer</span><span className="confidence"><span style={{ width: `${answer.confidence * 100}%` }} /> {Math.round(answer.confidence * 100)}% confidence</span></div><p className="answer-copy">{answer.answer}</p><div className="answer-foot"><ShieldCheck size={15} /> Grounded in {answer.citations.length} cited source{answer.citations.length === 1 ? '' : 's'} <button className="button button-quiet" onClick={() => setQueryText('')} data-testid="button-clear-answer">Clear</button></div></section><section className="panel"><SectionHeading eyebrow="Evidence trail" title="Citations" /><div className="citation-list">{answer.citations.length ? answer.citations.map((citation, i) => <CitationCard citation={citation} key={`${citation.document}-${i}`} />) : <EmptyState title="No citations returned" detail="Ask a narrower policy question for source evidence." icon={FileCheck2} />}</div></section></div>}
-  </div>;
-}
-
 function AdminPage() {
   const query = useListAuditLogs({ query: { queryKey: getListAuditLogsQueryKey(), refetchInterval: 30000 } });
   const delegationQuery = useGetDelegationStatus({ query: { queryKey: getGetDelegationStatusQueryKey() } });
@@ -874,7 +891,6 @@ function Router() {
     <Route path="/procurement" component={ProcurementWorkflowPage} />
     <Route path="/vendor" component={VendorPage} />
     <Route path="/treasury" component={TreasuryPage} />
-    <Route path="/compliance" component={CompliancePage} />
     <Route path="/admin" component={AdminPage} />
     <Route><NotFoundPage /></Route>
   </Switch></RoutedErrorBoundary></Shell>;

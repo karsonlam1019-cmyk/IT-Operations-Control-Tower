@@ -6,9 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface Citation {
-  document: string;
-  section: string;
-  page: number;
-  excerpt: string;
+export interface JiraSyncResult {
+  /** @minimum 0 */
+  count: number;
 }

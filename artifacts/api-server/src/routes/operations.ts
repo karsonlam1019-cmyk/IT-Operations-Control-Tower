@@ -44,8 +44,6 @@ import {
   ResolveVarianceBody,
   ResolveVarianceParams,
   ResolveVarianceResponse,
-  SearchComplianceBody,
-  SearchComplianceResponse,
   SubmitInvoiceBody,
   SubmitInvoiceParams,
   SubmitInvoiceResponse,
@@ -65,6 +63,7 @@ import {
   UpdateHeadOfItLeaveResponse,
 } from "@workspace/api-zod";
 import { deepseek } from "../integrations/deepseek";
+import { listJiraReleaseTasks } from "../integrations/jira";
 import {
   approveProcurement,
   advanceProcurementStatus,
@@ -84,6 +83,7 @@ import {
   loadBudgetSummary,
   loadDashboardStats,
   loadProcurement,
+  loadShiftSignals,
   loadStaff,
   loadVendorPortalPurchaseOrders,
   markPaid,
@@ -97,6 +97,7 @@ import {
   recordAuditEvent,
 } from "../lib/db-runtime";
 import { resolveVendorPortalIdentity, type VendorPortalIdentity } from "../integrations/vendor";
+import { listSupabaseShiftSignals, updateSupabaseShiftTick } from "../integrations/supabase";
 import {
   CircuitBreaker,
   CircuitOpenError,
@@ -110,6 +111,41 @@ const router: IRouter = Router();
 const dbBreaker = new CircuitBreaker("db", 5, 30_000);
 const budgetBreaker = new CircuitBreaker("budget-fx", 5, 30_000);
 
+type SyncFailureCategory =
+  | "CONFIGURATION"
+  | "JIRA"
+  | "SUPABASE"
+  | "UNKNOWN";
+
+function getSyncFailureCategory(error: unknown): SyncFailureCategory {
+  if (!(error instanceof Error)) {
+    return "UNKNOWN";
+  }
+
+  const category = (error as Error & { category?: unknown }).category;
+  if (
+    category === "CONFIGURATION" ||
+    category === "JIRA" ||
+    category === "SUPABASE" ||
+    category === "UNKNOWN"
+  ) {
+    return category;
+  }
+
+  const message = error.message;
+  if (message.startsWith("Missing required environment variables:")) {
+    return "CONFIGURATION";
+  }
+  const normalizedMessage = message.toLowerCase();
+  if (normalizedMessage.includes("supabase")) {
+    return "SUPABASE";
+  }
+  if (normalizedMessage.includes("jira")) {
+    return "JIRA";
+  }
+  return "UNKNOWN";
+}
+
 const staff = [
   { id: "s-001", name: "Maya Chen", initials: "MC", role: "Incident Commander", team: "Platform Reliability", region: "HK", status: "On Call - Incidents", ticket: "INC-4821", environment: "PROD", eta: "42 min", updatedAt: "1 min ago", isStale: false },
   { id: "s-002", name: "Ethan Wong", initials: "EW", role: "Release Engineer", team: "Enterprise Apps", region: "HK", status: "Deployment Window", ticket: "REL-2394", environment: "UAT", eta: "1 hr 20 min", updatedAt: "2 min ago", isStale: false },
@@ -121,14 +157,52 @@ const staff = [
   { id: "s-008", name: "Marcus Lau", initials: "ML", role: "Cloud Engineer", team: "Cloud Operations", region: "HK", status: "On Call - Incidents", ticket: "INC-4817", environment: "PROD", eta: "1 hr 5 min", updatedAt: "5 min ago", isStale: false },
 ];
 
-const releaseGates = [
-  { id: "g-01", environment: "SIT", title: "Regression suite passed", owner: "QA Automation", due: "Completed 09:12", checked: true, risk: "Low" },
-  { id: "g-02", environment: "SIT", title: "Security scan exceptions reviewed", owner: "Cyber Defence", due: "Completed 09:34", checked: true, risk: "Low" },
-  { id: "g-03", environment: "UAT", title: "Business owner sign-off", owner: "Enterprise Apps", due: "Today 15:00", checked: false, risk: "Medium" },
-  { id: "g-04", environment: "UAT", title: "Data reconciliation verified", owner: "Data Platforms", due: "Today 16:30", checked: true, risk: "Low" },
-  { id: "g-05", environment: "PROD", title: "Rollback plan attached", owner: "Release Engineering", due: "Today 17:00", checked: true, risk: "High" },
-  { id: "g-06", environment: "PROD", title: "Change Advisory Board approval", owner: "Head of IT", due: "Today 17:30", checked: false, risk: "Critical" },
+const demoReleaseGates = [
+  { id: "g-01", environment: "SIT", title: "Regression suite passed", summary: "Regression suite passed", owner: "QA Automation", due: "Completed 09:12", dueDate: "Completed 09:12", checked: true, risk: "Low", priority: "Low" },
+  { id: "g-02", environment: "SIT", title: "Security scan exceptions reviewed", summary: "Security scan exceptions reviewed", owner: "Cyber Defence", due: "Completed 09:34", dueDate: "Completed 09:34", checked: true, risk: "Low", priority: "Low" },
+  { id: "g-03", environment: "UAT", title: "Business owner sign-off", summary: "Business owner sign-off", owner: "Enterprise Apps", due: "Today 15:00", dueDate: "Today 15:00", checked: false, risk: "Medium", priority: "Medium" },
+  { id: "g-04", environment: "UAT", title: "Data reconciliation verified", summary: "Data reconciliation verified", owner: "Data Platforms", due: "Today 16:30", dueDate: "Today 16:30", checked: true, risk: "Low", priority: "Low" },
+  { id: "g-05", environment: "PROD", title: "Rollback plan attached", summary: "Rollback plan attached", owner: "Release Engineering", due: "Today 17:00", dueDate: "Today 17:00", checked: true, risk: "High", priority: "High" },
+  { id: "g-06", environment: "PROD", title: "Change Advisory Board approval", summary: "Change Advisory Board approval", owner: "Head of IT", due: "Today 17:30", dueDate: "Today 17:30", checked: false, risk: "Critical", priority: "Critical" },
 ];
+
+function releaseEnvironment(value: string): string {
+  const normalized = value.trim().toUpperCase();
+  if (normalized === "PRO" || normalized.includes("PROD")) return "PROD";
+  if (normalized.includes("UAT")) return "UAT";
+  if (normalized.includes("SIT")) return "SIT";
+  if (normalized.includes("STAGING")) return "STAGING";
+  return normalized || "UNASSIGNED";
+}
+
+async function loadLiveReleaseGates() {
+  const [jiraTasks, shifts] = await Promise.all([listJiraReleaseTasks(), listSupabaseShiftSignals()]);
+  if (!jiraTasks || !shifts) return null;
+  const shiftsById = new Map(shifts.map((shift) => [shift.id, shift]));
+  return jiraTasks.flatMap((task) => {
+    const shift = shiftsById.get(task.key);
+    if (shift?.processStatus.trim().toLowerCase() === "completed") return [];
+    const summary = task.summary || task.key;
+    const dueDate = task.dueDate || shift?.dueDate || "—";
+    const priority = task.priority || shift?.priority || "—";
+    return [{
+      id: task.key,
+      environment: releaseEnvironment(task.environment || shift?.environment || ""),
+      title: summary,
+      summary,
+      owner: shift?.name || "Jira task",
+      due: dueDate,
+      dueDate,
+      checked: shift?.tick === true,
+      risk: priority,
+      priority,
+    }];
+  });
+}
+
+async function getReleaseGates() {
+  return (await loadLiveReleaseGates()) ?? demoReleaseGates;
+}
 
 const procurement = [
   { id: "p-01", prNumber: "PR-2026-0842", poNumber: "PO-2026-0611", vendor: "Nimbus Cloud Services", region: "HK", amount: 428000, currency: "HKD", hkdAmount: 428000, status: "Pending L2 Approval", match: "Matched", createdAt: "28 Aug 2026, 09:18" },
@@ -240,6 +314,14 @@ const demoActors: Record<string, { name: string; region: string; isDeputy?: bool
   "0ebb310c-b241-48b0-9254-7b78f7634676": { name: "Siti Halim", region: "HK" },
 };
 
+function isActiveStaffStatus(status: string): boolean {
+  return status.trim().toLowerCase() === "active";
+}
+
+function isOutOfOfficeStatus(status: string): boolean {
+  return status.trim().toLowerCase() === "out of office";
+}
+
 async function writeOperationalAudit(action: string, target: string, actorId?: string) {
   const persisted = await recordAuditEvent(action, target, actorId);
   if (persisted) {
@@ -262,22 +344,56 @@ async function writeOperationalAudit(action: string, target: string, actorId?: s
 }
 
 router.get("/dashboard/summary", async (_req, res) => {
+  const releaseGates = await getReleaseGates();
   const checked = releaseGates.filter((item) => item.checked).length;
   const db = await loadDashboardStats();
+  const jiraStaff = (await listSupabaseShiftSignals()) ?? (await loadShiftSignals());
+  const totalMembers = jiraStaff?.length ?? 0;
+  const outOfOfficeMembers = jiraStaff?.filter((member) => isOutOfOfficeStatus(member.status)).length ?? 0;
+  const inactiveMembers = jiraStaff?.filter((member) => member.signal?.trim().toLowerCase() === "inactive").length ?? 0;
+  const eligibleMembers = totalMembers - outOfOfficeMembers;
+  const pulseNumerator = Math.max(0, inactiveMembers - outOfOfficeMembers);
+  const systemPulse = jiraStaff && eligibleMembers > 0
+    ? Math.round((pulseNumerator / eligibleMembers) * 100)
+    : 0;
   res.json(GetDashboardSummaryResponse.parse({
-    activeStaff: db?.activeStaff ?? 247,
+    activeStaff: jiraStaff
+      ? jiraStaff.filter((member) => isActiveStaffStatus(member.status)).length
+      : db?.activeStaff ?? 247,
     staleStaff: db?.staleStaff ?? staff.filter((member) => member.isStale).length,
     pendingApprovals: db?.pendingApprovals ?? procurement.filter((item) => item.status.includes("Pending")).length,
     blockedVariances: db?.blockedVariances ?? procurement.filter((item) => item.status.includes("Blocked")).length,
     releaseReadiness: Math.round((checked / releaseGates.length) * 100),
-    systemPulse: 99.94,
+    systemPulse,
     lastSync: db ? `Live · ${new Date().toISOString()}` : "Live · refreshed 42s ago",
   }));
 });
 
 router.get("/staff", async (_req, res) => {
-  const db = await loadStaff();
+  const db = (await listSupabaseShiftSignals()) ?? (await loadShiftSignals()) ?? (await loadStaff());
   res.json(ListStaffResponse.parse(db ?? staff));
+});
+
+router.post("/staff/sync-jira", async (req, res): Promise<void> => {
+  try {
+    const result = await syncJiraShifts();
+    res.json(SyncStaffJiraResponse.parse(result));
+  } catch (error) {
+    const category = getSyncFailureCategory(error);
+    req.log.error(
+      { category },
+      category === "CONFIGURATION"
+        ? "Jira shift sync is not configured"
+        : "Jira shift sync failed",
+    );
+    res.status(503).json({
+      error: category === "CONFIGURATION"
+        ? "Jira shift sync is not configured on the server"
+        : "Jira shift sync failed; check the integration logs",
+      code: "JIRA_SYNC_UNAVAILABLE",
+      category,
+    });
+  }
 });
 
 router.patch("/staff/:id", async (req, res) => {
@@ -345,7 +461,8 @@ router.patch("/governance/delegation/leave", async (req, res) => {
   res.json(UpdateHeadOfItLeaveResponse.parse(demoDelegationStatus()));
 });
 
-router.get("/release-gates", (_req, res) => {
+router.get("/release-gates", async (_req, res) => {
+  const releaseGates = await getReleaseGates();
   res.json(ListReleaseGatesResponse.parse(releaseGates));
 });
 
@@ -355,12 +472,23 @@ router.patch("/release-gates/:id/check", async (req, res) => {
     res.status(400).json({ error: "Invalid release gate" });
     return;
   }
+  const liveGates = await loadLiveReleaseGates();
+  const releaseGates = liveGates ?? demoReleaseGates;
   const gate = releaseGates.find((item) => item.id === params.data.id);
   if (!gate) {
     res.status(404).json({ error: "Release gate not found" });
     return;
   }
-  gate.checked = !gate.checked;
+  const nextChecked = !gate.checked;
+  if (liveGates) {
+    const persisted = await updateSupabaseShiftTick(gate.id, nextChecked);
+    if (!persisted) {
+      res.status(502).json({ error: "Release gate checkbox could not be saved to Supabase" });
+      return;
+    }
+  } else {
+    gate.checked = nextChecked;
+  }
   await writeOperationalAudit(
     gate.checked ? "Completed release gate" : "Reopened release gate",
     `release-gate:${gate.id}`,

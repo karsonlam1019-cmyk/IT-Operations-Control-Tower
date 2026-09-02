@@ -19,4 +19,8 @@ export interface StaffMember {
   eta: string;
   updatedAt: string;
   isStale: boolean;
+  signal?: string;
+  source?: string;
+  priority?: string;
+  dueDate?: string;
 }

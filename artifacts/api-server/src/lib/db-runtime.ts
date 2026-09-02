@@ -1,4 +1,4 @@
-import { readEnv } from "../integrations/config";
+import { fetchWithTimeout, readEnv } from "../integrations/config";
 import { registerDlqCapture } from "./resilience";
 
 // Runtime PostgreSQL data access for the live Supabase database.
@@ -14,6 +14,52 @@ type DbPool = {
     params?: unknown[],
   ) => Promise<{ rows: Record<string, unknown>[] }>;
 };
+
+export async function checkDatabaseHealth(): Promise<{
+  name: "postgresql";
+  configured: boolean;
+  status: "ok" | "not_configured" | "error";
+  latencyMs?: number;
+  message: string;
+}> {
+  if (!isDbConfigured()) {
+    return {
+      name: "postgresql",
+      configured: false,
+      status: "not_configured",
+      message: "DATABASE_URL not configured; using representative operational data",
+    };
+  }
+  const start = Date.now();
+  const pool = await getPool();
+  if (!pool) {
+    return {
+      name: "postgresql",
+      configured: true,
+      status: "error",
+      latencyMs: Date.now() - start,
+      message: "PostgreSQL client could not be initialized",
+    };
+  }
+  try {
+    await pool.query("SELECT 1");
+    return {
+      name: "postgresql",
+      configured: true,
+      status: "ok",
+      latencyMs: Date.now() - start,
+      message: "PostgreSQL reachable",
+    };
+  } catch (error) {
+    return {
+      name: "postgresql",
+      configured: true,
+      status: "error",
+      latencyMs: Date.now() - start,
+      message: error instanceof Error ? error.message : "PostgreSQL health check failed",
+    };
+  }
+}
 
 let poolPromise: Promise<DbPool | null> | null = null;
 
@@ -47,7 +93,11 @@ export type RuntimeStaffMember = {
   role: string;
   team: string;
   region: string;
+  signal?: string;
   status: string;
+  source?: string;
+  priority?: string;
+  dueDate?: string;
   ticket: string;
   environment: string;
   eta: string;
@@ -55,7 +105,73 @@ export type RuntimeStaffMember = {
   isStale: boolean;
 };
 
+function normalizeSupabaseUrl(value: string): string {
+  return value.replace(/\/+$/, "").replace(/\/rest\/v1$/i, "");
+}
+
+async function loadSyncedShiftStaff(): Promise<RuntimeStaffMember[] | null> {
+  const supabaseUrl = readEnv("SUPABASE_URL");
+  const serviceRoleKey = readEnv("SUPABASE_SERVICE_ROLE_KEY");
+  if (!supabaseUrl || !serviceRoleKey) return null;
+
+  const params = new URLSearchParams({
+    select:
+      "jira_issue_key,staff_member,team,region,environment,signal,action,due_date,jira_updated_at,last_synced_at",
+    order: "last_synced_at.desc",
+    limit: "100",
+  });
+
+  try {
+    const response = await fetchWithTimeout(
+      `${normalizeSupabaseUrl(supabaseUrl)}/rest/v1/shifts?${params}`,
+      {
+        headers: {
+          apikey: serviceRoleKey,
+          Authorization: `Bearer ${serviceRoleKey}`,
+          Accept: "application/json",
+        },
+      },
+    );
+    if (!response.ok) return null;
+
+    const rows = await response.json();
+    if (!Array.isArray(rows) || rows.length === 0) return null;
+
+    return rows
+      .filter((row) => str(row.jira_issue_key).length > 0)
+      .map((row) => {
+        const name = str(row.staff_member) || "Unassigned";
+        const parts = name.trim().split(/\s+/).filter(Boolean);
+        const initials = (
+          (parts[0]?.[0] ?? "") +
+          (parts.length > 1 ? (parts[1]?.[0] ?? "") : "")
+        ).toUpperCase();
+        const key = str(row.jira_issue_key);
+
+        return {
+          id: key,
+          name,
+          initials: initials || "—",
+          role: "",
+          team: str(row.team) || "Jira / Unassigned",
+          region: str(row.region) || "—",
+          status: str(row.action) || str(row.signal) || "Unknown",
+          ticket: key,
+          environment: str(row.environment) || "—",
+          eta: str(row.due_date) || "—",
+          updatedAt: str(row.last_synced_at || row.jira_updated_at) || "—",
+          isStale: false,
+        };
+      });
+  } catch {
+    return null;
+  }
+}
+
 export async function loadStaff(): Promise<RuntimeStaffMember[] | null> {
+  const syncedShifts = await loadSyncedShiftStaff();
+  if (syncedShifts) return syncedShifts;
+
   const pool = await getPool();
   if (!pool) return null;
   try {
@@ -94,6 +210,59 @@ export async function loadStaff(): Promise<RuntimeStaffMember[] | null> {
         environment: str(row.environment),
         eta: str(row.eta),
         updatedAt: str(row.updated).length ? `${str(row.updated)} today` : "—",
+        isStale: Boolean(row.is_stale),
+      };
+    });
+  } catch {
+    return null;
+  }
+}
+
+export async function loadShiftSignals(): Promise<RuntimeStaffMember[] | null> {
+  const pool = await getPool();
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+         s.jira_issue_key AS id,
+         COALESCE(s.staff_member, 'Unassigned') AS name,
+         'Jira SHIFT' AS role,
+         COALESCE(s.team, 'Unassigned') AS team,
+         COALESCE(s.region, '—') AS region,
+         COALESCE(NULLIF(s.signal, ''), 'Unknown') AS signal,
+         COALESCE(NULLIF(s.action, ''), NULLIF(s."Process_Status", ''), 'Unknown') AS status,
+         'Synced from Jira' AS source,
+         COALESCE(NULLIF(s.priority, ''), '—') AS priority,
+         COALESCE(NULLIF(s.due_date::text, ''), '—') AS due_date,
+         s.jira_issue_key AS ticket,
+         COALESCE(s.environment, '—') AS environment,
+         '—' AS eta,
+         COALESCE(s.jira_updated_at, s.updated_at) AS updated,
+         COALESCE(s.signal ILIKE '%stale%', false) AS is_stale
+       FROM public.shifts s
+       ORDER BY s.jira_updated_at DESC NULLS LAST, s.jira_issue_key`,
+    );
+    return rows.map((row) => {
+      const name = str(row.name);
+      const parts = name.trim().split(/\s+/).filter(Boolean);
+      const initials =
+        (parts[0]?.[0] ?? "") + (parts.length > 1 ? (parts[1]?.[0] ?? "") : "");
+      return {
+        id: str(row.id),
+        name,
+        initials: initials.toUpperCase(),
+        role: str(row.role),
+        team: str(row.team),
+        region: str(row.region),
+        signal: str(row.signal),
+        status: str(row.status),
+        source: str(row.source),
+        priority: str(row.priority),
+        dueDate: str(row.due_date),
+        ticket: str(row.ticket),
+        environment: str(row.environment),
+        eta: str(row.eta),
+        updatedAt: str(row.updated),
         isStale: Boolean(row.is_stale),
       };
     });

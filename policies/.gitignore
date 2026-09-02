@@ -1,0 +1,5 @@
+# Keep local ingestion output and accidental credentials out of version control.
+*.log
+*.json
+.env*
+!README.md

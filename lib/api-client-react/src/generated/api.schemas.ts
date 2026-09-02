@@ -32,6 +32,10 @@ export interface StaffMember {
   eta: string;
   updatedAt: string;
   isStale: boolean;
+  signal?: string;
+  source?: string;
+  priority?: string;
+  dueDate?: string;
 }
 
 export interface StaffStatusUpdate {
@@ -42,10 +46,13 @@ export interface ReleaseGate {
   id: string;
   environment: string;
   title: string;
+  summary: string;
   owner: string;
   due: string;
+  dueDate: string;
   checked: boolean;
   risk: string;
+  priority: string;
 }
 
 export interface ProcurementRecord {
@@ -157,24 +164,6 @@ export interface TreasuryAnalytics {
   varianceRate: number;
 }
 
-export interface ComplianceSearchInput {
-  /** @minLength 1 */
-  query: string;
-}
-
-export interface Citation {
-  document: string;
-  section: string;
-  page: number;
-  excerpt: string;
-}
-
-export interface ComplianceAnswer {
-  answer: string;
-  confidence: number;
-  citations: Citation[];
-}
-
 export interface AuditLog {
   id: string;
   actor: string;
@@ -206,9 +195,25 @@ export interface HeadOfItLeaveUpdate {
   onLeave: boolean;
 }
 
+export type ErrorResponseCategory = typeof ErrorResponseCategory[keyof typeof ErrorResponseCategory];
+
+
+export const ErrorResponseCategory = {
+  CONFIGURATION: 'CONFIGURATION',
+  JIRA: 'JIRA',
+  SUPABASE: 'SUPABASE',
+  UNKNOWN: 'UNKNOWN',
+} as const;
+
 export interface ErrorResponse {
   error: string;
   code?: string;
+  category?: ErrorResponseCategory;
+}
+
+export interface JiraSyncResult {
+  /** @minimum 0 */
+  count: number;
 }
 
 export type CreateProcurementInputRegion = typeof CreateProcurementInputRegion[keyof typeof CreateProcurementInputRegion];

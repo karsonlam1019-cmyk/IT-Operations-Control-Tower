@@ -65,6 +65,7 @@ export type SupabaseShiftSignal = {
   region: string;
   signal: string;
   status: string;
+  processStatus: string;
   source: string;
   priority: string;
   dueDate: string;
@@ -116,6 +117,7 @@ export async function listSupabaseShiftSignals(): Promise<SupabaseShiftSignal[] 
         region: text(row.region) || "—",
          signal,
          status,
+         processStatus: text(row.Process_Status) || "—",
          source: "Synced from Jira",
          priority: text(row.priority) || "—",
          dueDate: text(row.due_date) || text(row["Due date"]) || "—",

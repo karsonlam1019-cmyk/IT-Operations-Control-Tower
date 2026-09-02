@@ -146,12 +146,13 @@ async function loadLiveReleaseGates() {
   const [jiraTasks, shifts] = await Promise.all([listJiraReleaseTasks(), listSupabaseShiftSignals()]);
   if (!jiraTasks || !shifts) return null;
   const shiftsById = new Map(shifts.map((shift) => [shift.id, shift]));
-  return jiraTasks.map((task) => {
+  return jiraTasks.flatMap((task) => {
     const shift = shiftsById.get(task.key);
+    if (shift?.processStatus.trim().toLowerCase() === "completed") return [];
     const summary = task.summary || task.key;
     const dueDate = task.dueDate || shift?.dueDate || "—";
     const priority = task.priority || shift?.priority || "—";
-    return {
+    return [{
       id: task.key,
       environment: releaseEnvironment(task.environment || shift?.environment || ""),
       title: summary,
@@ -162,7 +163,7 @@ async function loadLiveReleaseGates() {
       checked: shift?.tick === true,
       risk: priority,
       priority,
-    };
+    }];
   });
 }
 
